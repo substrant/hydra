@@ -9,33 +9,7 @@
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 
 namespace hydra {
-    bool pe_image::verify_header(const mem::buffer& buffer, pe_status* p_status) {
-        const auto base = buffer.data();
-
-        // Ensure that this is adr PE file
-        const auto* dos_header = static_cast<PIMAGE_DOS_HEADER>(base);
-        if (dos_header->e_magic != IMAGE_DOS_SIGNATURE) {
-            if (p_status != nullptr) *p_status = pe_status::bad_dos_signature;
-            return false;
-        }
-
-        // Verify buffer is large enough
-        if (buffer.size() < dos_header->e_lfanew + sizeof(IMAGE_NT_HEADERS)) {
-            if (p_status != nullptr) *p_status = pe_status::buffer_too_small;
-            return false;
-        }
-
-        // Read the NT headers
-        const auto* nt_headers = static_cast<PIMAGE_NT_HEADERS>(base + dos_header->e_lfanew);
-        if (nt_headers->Signature != IMAGE_NT_SIGNATURE) {
-            if (p_status != nullptr) *p_status = pe_status::bad_nt_signature;
-            return false;
-        }
-
-        return true;
-    }
-
-    pe_image pe_image::from_file(const std::filesystem::path& path) {
+    pe_image pe_image::load_file(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file) throw std::runtime_error("Could not open file");
 
@@ -48,24 +22,24 @@ namespace hydra {
         return pe_image{std::move(buffer)};
     }
 
-    pe_image pe_image::from_buffer(const mem::buffer& buffer) {
+    pe_image pe_image::load_buffer(const mem::buffer& buffer) {
         return pe_image{buffer};
     }
 
-    pe_image pe_image::from_base(const mem::addr base) {
+    pe_image pe_image::load_base(const mem::addr base) {
         pe_image image{mem::buffer::from_base(base, mem::page_size)};
         image.read_header();
         return image;
     }
 
-    std::shared_ptr<pe_module> pe_module::from_header(const std::shared_ptr<process>& proc, const mem::addr base, const std::string_view name, const std::filesystem::path& path) {
+    std::shared_ptr<remote_module> remote_module::from_header(const std::shared_ptr<process>& proc, const mem::addr base, const std::string_view name, const std::filesystem::path& path) {
         // Load (likely partial header) into memory
         auto buffer = mem::buffer::create(mem::page_size);
         if (!proc->mm_read(base, buffer))
             throw std::runtime_error("bruh");
 
         // Create PE image from buffer
-        auto image = std::make_shared<pe_module>(proc, buffer, name, base, path);
+        auto image = std::make_shared<remote_module>(proc, buffer, name, base, path);
 
         // Parse PE header
         if (image->read_header() != pe_status::success)
@@ -92,7 +66,7 @@ namespace hydra {
         return image;
     }
 
-    std::shared_ptr<pe_module> pe_module::from_remote(const std::shared_ptr<process>& proc,const mem::addr base) {
+    std::shared_ptr<remote_module> remote_module::from_remote(const std::shared_ptr<process>& proc,const mem::addr base) {
         size_t path_len;
         size_t name_len;
 
@@ -297,7 +271,7 @@ namespace hydra {
         return nullptr;
     }
 
-    bool pe_module::dump_image(std::atomic<bool>& stop, const double clear_ratio, const int wait_ms) {
+    bool remote_module::dump_image(std::atomic<bool>& stop, const double clear_ratio, const int wait_ms) {
         auto remote_base = remote_buffer().data();
 
         // Grow to full size

@@ -39,8 +39,8 @@ namespace hydra {
         std::shared_ptr<process> _self = nullptr;
         unique_handle<CloseHandle> _handle;
 
-        std::unordered_map<std::uintptr_t, std::shared_ptr<pe_module>> _modules;
-        std::vector<std::shared_ptr<pe_module>> _modules_list;
+        std::unordered_map<std::uintptr_t, std::shared_ptr<remote_module>> _modules;
+        std::vector<std::shared_ptr<remote_module>> _modules_list;
 
         /* Unsafe constructor */
         explicit process(const HANDLE handle, const bool no_dispose = false) : _handle(handle, no_dispose) { }
@@ -83,11 +83,11 @@ namespace hydra {
 
         /* Instrumentation functions */
 
-        detail::generator<std::shared_ptr<pe_module>> linked_modules();
+        detail::generator<std::shared_ptr<remote_module>> linked_modules();
 
-        detail::generator<std::shared_ptr<pe_module>> unlinked_modules();
+        detail::generator<std::shared_ptr<remote_module>> unlinked_modules();
 
-        std::shared_ptr<pe_module> module(const std::optional<std::string>& name = std::nullopt);
+        std::shared_ptr<remote_module> module(const std::optional<std::string>& name = std::nullopt);
 
         std::shared_ptr<window> main_window() const;
 

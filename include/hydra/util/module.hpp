@@ -32,7 +32,7 @@ namespace hydra {
     };
 
     class pe_image : public std::enable_shared_from_this<pe_image> {
-        friend class pe_module;
+        friend class remote_module;
         friend class process;
 
     protected:
@@ -55,13 +55,11 @@ namespace hydra {
 
         virtual ~pe_image() = default;
 
-        static bool verify_header(const mem::buffer& buffer, pe_status* p_status = nullptr);
+        static pe_image load_file(const std::filesystem::path& path);
 
-        static pe_image from_file(const std::filesystem::path& path);
+        static pe_image load_buffer(const mem::buffer& buffer);
 
-        static pe_image from_buffer(const mem::buffer& buffer);
-
-        static pe_image from_base(mem::addr base);
+        static pe_image load_base(mem::addr base);
 
         pe_status read_header();
 
@@ -80,19 +78,23 @@ namespace hydra {
         mem::addr import(std::string_view symbol) const;
     };
 
-    class pe_module : public pe_image {
+    class local_module : public pe_image {
+
+    };
+
+    class remote_module : public pe_image {
         std::shared_ptr<process> m_proc;
         mem::addr m_base;
         std::string m_name;
         std::filesystem::path m_path;
 
     public:
-        explicit pe_module(const std::shared_ptr<process>& proc, mem::buffer& buffer, const std::string_view name, const mem::addr base, const std::filesystem::path& path = {})
+        explicit remote_module(const std::shared_ptr<process>& proc, mem::buffer& buffer, const std::string_view name, const mem::addr base, const std::filesystem::path& path = {})
             : pe_image(buffer), m_base(base), m_proc(proc), m_name(name), m_path(path) { }
 
-        static std::shared_ptr<pe_module> from_header(const std::shared_ptr<process>& proc, mem::addr base, std::string_view name, const std::filesystem::path& path = {});
+        static std::shared_ptr<remote_module> from_header(const std::shared_ptr<process>& proc, mem::addr base, std::string_view name, const std::filesystem::path& path = {});
 
-        static std::shared_ptr<pe_module> from_remote(const std::shared_ptr<process>& proc, mem::addr base);
+        static std::shared_ptr<remote_module> from_remote(const std::shared_ptr<process>& proc, mem::addr base);
 
         std::shared_ptr<process> proc() const { return m_proc; }
 
@@ -122,7 +124,7 @@ namespace hydra {
 
         std::shared_ptr<pe_image> image() const { return m_image; }
 
-        std::shared_ptr<pe_module> module() const { return std::dynamic_pointer_cast<pe_module>(m_image); }
+        std::shared_ptr<remote_module> module() const { return std::dynamic_pointer_cast<remote_module>(m_image); }
 
         mem::addr local_base() const {
             return m_image->local_buffer().data() + m_header.PointerToRawData;

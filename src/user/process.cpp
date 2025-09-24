@@ -59,7 +59,7 @@ namespace hydra {
             const auto path = std::string(path_buf, path_len);
             const auto name = std::string(name_buf, name_len);
             const auto base = reinterpret_cast<std::uintptr_t>(module_info.lpBaseOfDll);
-            const auto ptr = pe_module::from_header(_self, base, name, path);
+            const auto ptr = remote_module::from_header(_self, base, name, path);
 
             // Push module to list and dict
             _modules_list.push_back(ptr);
@@ -139,7 +139,7 @@ namespace hydra {
             thread->resume();
     }
 
-    detail::generator<std::shared_ptr<pe_module>> process::linked_modules() {
+    detail::generator<std::shared_ptr<remote_module>> process::linked_modules() {
         if (_modules.empty() && !scan_linked_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
@@ -147,7 +147,7 @@ namespace hydra {
             co_yield v;
     }
 
-    detail::generator<std::shared_ptr<pe_module>> process::unlinked_modules() {
+    detail::generator<std::shared_ptr<remote_module>> process::unlinked_modules() {
         std::unordered_set<void*> linked_bases;
 
         // Scan for linked modules
@@ -173,11 +173,11 @@ namespace hydra {
                 continue;
 
             // This is an unlinked module
-            co_yield pe_module::from_header(_self, mbi.BaseAddress, "unknown");
+            co_yield remote_module::from_header(_self, mbi.BaseAddress, "unknown");
         }
     }
 
-    std::shared_ptr<pe_module> process::module(const std::optional<std::string>& name) {
+    std::shared_ptr<remote_module> process::module(const std::optional<std::string>& name) {
         // Scan for linked modules
         if (_modules.empty() && !scan_linked_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
@@ -219,7 +219,7 @@ namespace hydra {
 
     detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const mem::buffer& buffer) const {
         MEMORY_BASIC_INFORMATION mbi;
-        std::uintptr_t at = buffer.start();
+        std::uintptr_t at = buffer.base();
 
         while (at < buffer.end() && mm_query(at, mbi)) {
             co_yield mbi;
@@ -303,7 +303,7 @@ namespace hydra {
         MEMORY_BASIC_INFORMATION mbi;
         auto time = std::chrono::system_clock::now();
 
-        for (std::uintptr_t addr = mem::um_bounds.start(); addr < mem::um_bounds.end(); ) {
+        for (std::uintptr_t addr = mem::um_bounds.base(); addr < mem::um_bounds.end(); ) {
             if (!mm_query(addr, mbi)) {
                 addr += mem::page_size;
                 continue;

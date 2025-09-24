@@ -1,39 +1,29 @@
 #pragma once
 
-#include <phnt_windows.h>
-
-#include <cstdint>
-#include <cstddef>
-#include <vector>
-#include <functional>
-#include <stdexcept>
-#include <utility>
-#include <concepts>
-#include <type_traits>
-
 #include "hydra/detail/generator.hpp"
-#include "hydra/detail/noncopyable.hpp"
 
 namespace hydra::mem {
+    /// Represents a generic address type.
+    /// Supports automatic casting and arithmetic.
     struct addr;
 
-    template <class T>
-    concept PointerType = std::is_pointer_v<std::remove_cvref_t<T>> || std::same_as<std::remove_cvref_t<T>, std::uintptr_t>;
+    namespace detail {
+        template <class T>
+        concept PointerType = std::is_pointer_v<std::remove_cvref_t<T>> || std::same_as<std::remove_cvref_t<T>, std::uintptr_t>;
 
-    template <class T>
-    concept HydraAddress = std::same_as<std::remove_cvref_t<T>, addr>;
+        template <class T>
+        concept HydraAddress = std::same_as<std::remove_cvref_t<T>, addr>;
 
-    template <class T>
-    concept AddressLike =
-        std::same_as<std::remove_cvref_t<T>, addr> ||
-        std::same_as<std::remove_cvref_t<T>, std::uintptr_t> ||
-        std::is_pointer_v<std::remove_cvref_t<T>>;
+        template <class T>
+        concept AddressLike =
+            std::same_as<std::remove_cvref_t<T>, addr> ||
+            std::same_as<std::remove_cvref_t<T>, std::uintptr_t> ||
+            std::is_pointer_v<std::remove_cvref_t<T>>;
 
-    template <class T>
-    concept AddressArithmeticOperand = AddressLike<T> || std::is_integral_v<T>;
+        template <class T>
+        concept AddressArithmeticOperand = AddressLike<T> || std::is_integral_v<T>;
+    }
 
-    // This class gives you automatic casting magic shit
-    // Very useful for exploit development where you reinterpret addresses almost constantly
 #   pragma pack(push, 1)
     struct addr {
         union {
@@ -47,30 +37,56 @@ namespace hydra::mem {
             std::ptrdiff_t d;
         };
 
-        // Implicit constructors
+        /// Default constructor for addr.
+        /// Initializes to nullptr.
         constexpr addr() : p(nullptr) { }
+
+        /// Construct addr from void pointer.
+        /// Sets address from pointer value.
         constexpr addr(void* ptr) : p(static_cast<std::uint8_t*>(ptr)) { }
+
+        /// Construct addr from integer value.
+        /// Sets address from integer.
         constexpr addr(const std::uintptr_t addr) : i(addr) { }
+
+        /// Construct addr from nullptr.
+        /// Sets address to null.
         constexpr addr(std::nullptr_t) : p(nullptr) { }
+
+        /// Construct addr from byte pointer.
+        /// Sets address from byte pointer.
         constexpr addr(std::uint8_t* ptr) : p(ptr) { }
 
-        // Mutating arithmetic operators
-        
-        template <class T = addr> requires AddressLike<T>
+        /// Pre-increment operator for addr.
+        /// Increments address by one.
+        template <detail::AddressLike T = addr>
         T& operator++() { i++; return static_cast<T&>(*this); }
 
-        template <class T = addr> requires AddressLike<T>
+        /// Post-increment operator for addr.
+        /// Increments address by one, returns previous value.
+        template <detail::AddressLike T = addr>
         T operator++(int) { const addr tmp = *this; ++(*this); return tmp; }
 
-        template <class T = addr> requires AddressLike<T>
+        /// Pre-decrement operator for addr.
+        /// Decrements address by one.
+        template <detail::AddressLike T = addr>
         T& operator--() { i--; return static_cast<T&>(*this); }
 
-        template <class T = addr> requires AddressLike<T>
+        /// Post-decrement operator for addr.
+        /// Decrements address by one, returns previous value.
+        template <detail::AddressLike T = addr>
         T operator--(int) { const addr tmp = *this; --(*this); return tmp; }
 
+        /// Add offset to addr.
+        /// Increases address by offset.
         addr& operator+=(const std::size_t off) { i += off; return *this; }
+
+        /// Subtract offset from addr.
+        /// Decreases address by offset.
         addr& operator-=(const std::size_t off) { i -= off; return *this; }
 
+        /// Normalize various types to uintptr_t.
+        /// Converts address-like or integral types to uintptr_t.
         template <class T>
         static constexpr std::uintptr_t normalize(const T& value) {
             if      constexpr (std::same_as<std::remove_cvref_t<T>, addr>)               return value.i;
@@ -80,6 +96,8 @@ namespace hydra::mem {
             else                                                                         static_assert([]{ return false; }(), "Unsupported source type for address arithmetic");
         }
 
+        /// Convert uintptr_t to various types.
+        /// Converts integer address to addr, pointer, or integer type.
         template <class Rt>
         static constexpr Rt convert(std::uintptr_t value) {
             if      constexpr (std::same_as<std::remove_cvref_t<Rt>, addr>)               return addr(value);
@@ -88,28 +106,43 @@ namespace hydra::mem {
             else                                                                          static_assert([]{ return false; }(), "Unsupported return type for address arithmetic");
         }
 
-        // Automatically implicitly cast to any type but default integer type
-        template <class T> requires AddressLike<T>
+        /// Construct addr from address-like type.
+        /// Accepts pointer, integer, or addr types.
+        template <detail::AddressLike T>
+        constexpr addr(T ptr) : i(normalize(ptr)) { }
+
+        /// Implicit conversion to address-like type.
+        /// Converts addr to pointer, integer, or addr type.
+        template <detail::AddressLike T> requires detail::AddressLike<T>
         constexpr operator T() const {
             return convert<T>(i);
         }
 
-        // Arithmetic operators
-        template <class T> requires AddressArithmeticOperand<T>
+        /// Checks if addr is not null.
+        /// Returns true if address is not null.
+        operator bool() const {
+            return p != nullptr;
+        }
+
+        /// Addition operator for addr arithmetic.
+        /// Adds operand to address and returns result.
+        template <detail::AddressArithmeticOperand T>
         friend constexpr addr operator+(addr a, const T& rhs) {
             a.i += normalize(rhs);
             return a;
         }
 
-        // Subtraction: addr - something
-        template <class T> requires AddressArithmeticOperand<T>
+        /// Subtraction operator for addr arithmetic.
+        /// Subtracts operand from address and returns result.
+        template <detail::AddressArithmeticOperand T>
         friend constexpr addr operator-(addr a, const T& rhs) {
             a.i -= normalize(rhs);
             return a;
         }
 
-        // Comparisons
-        template <class T, class Lhs> requires AddressArithmeticOperand<T> && HydraAddress<Lhs>
+        /// Three-way comparison operator for addr.
+        /// Compares two addresses or address-like values.
+        template <detail::AddressArithmeticOperand T, detail::HydraAddress Lhs>
         friend constexpr std::strong_ordering operator<=>(const Lhs& lhs, const T& rhs) {
             const auto li = lhs.i;
             const auto ri = normalize(rhs);
@@ -118,15 +151,14 @@ namespace hydra::mem {
             return (li < ri) ? std::strong_ordering::less : std::strong_ordering::greater;
         }
 
-        template <class T> requires AddressArithmeticOperand<T>
+        /// Equality comparison operator for addr.
+        /// Returns true if addresses are equal.
+        template <detail::AddressArithmeticOperand T>
         friend constexpr bool operator==(const addr& lhs, const T rhs) {
             return lhs.i == normalize(rhs);
         }
-
-        bool operator!() const { return p == nullptr; }
     };
 #   pragma pack(pop)
-
 
     namespace detail {
         inline bool match_aob(const addr base, const std::uint8_t* pattern, const char* mask, const std::size_t size) {
@@ -144,19 +176,16 @@ namespace hydra::mem {
             }
         }
     }
+
+    /// Represents a memory buffer with ownership and utility functions.
+    /// Provides allocation, scanning, and address utilities.
     class buffer {
         std::uint8_t* m_base = nullptr;
-        std::size_t m_size = 0;
-        bool m_owner;
-
-        explicit buffer(std::uint8_t* data, const std::size_t size)
-            : m_base(data), m_size(size), m_owner(false) { }
-
-        explicit buffer(const std::size_t size)
-            : m_size(size), m_owner(true) { alloc(size); }
+        std::size_t   m_size = 0;
+        bool          m_owner;
 
         void alloc(const std::size_t size) {
-            free(); // Free old data if needed
+            clear(); // Free old data if needed
 
             m_base = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
             if (!m_base) throw std::runtime_error("VirtualAlloc failed");
@@ -165,7 +194,7 @@ namespace hydra::mem {
             m_owner = true;
         }
 
-        void free() {
+        void clear() {
             if (!m_base) return;
             if (m_owner) VirtualFree(m_base, 0, MEM_RELEASE);
             m_base = nullptr;
@@ -173,126 +202,151 @@ namespace hydra::mem {
         }
 
     public:
+        /// Default constructor for buffer.
+        /// Initializes empty buffer, not owned.
         explicit buffer() : m_owner(false) { }
 
+        /// Allocates a buffer of given size.
+        /// Buffer owns its memory.
+        explicit buffer(const std::size_t size) : m_size(size), m_owner(true) { alloc(m_size); }
+
+        /// Wraps an existing address as buffer.
+        /// Buffer does not own memory.
+        explicit buffer(const addr base, const std::size_t size = 0) : m_base(base.p), m_size(size), m_owner(false) { }
+
+        /// Wraps an array as buffer.
+        /// Buffer does not own memory.
         template <std::size_t Size, class T>
-        static constexpr buffer from_array(T (&data)[Size]) {
-            return buffer{data, Size};
-        }
+        explicit buffer(T (&data)[Size]) : buffer(data, Size) { }
 
+        /// Wraps a pointer as buffer.
+        /// Buffer does not own memory.
         template <class T>
-        static constexpr buffer from_ref(T* ref) {
-            if constexpr (std::is_same_v<T, std::uint8_t>) return buffer{ref, sizeof(T)};
-            return buffer{reinterpret_cast<std::uint8_t*>(ref), sizeof(T)};
+        constexpr explicit buffer(T* ref) : m_size(sizeof(T)), m_owner(false) {
+            if constexpr (std::is_same_v<T, std::uint8_t>) {
+                m_base = ref;
+                return;
+            }
+            m_base = reinterpret_cast<std::uint8_t*>(ref);
         }
 
-        static buffer from_base(const addr addr, const std::size_t size) {
-            return buffer{addr.p, size};
+        /// Wraps a tuple of address bounds as buffer.
+        /// Buffer does not own memory.
+        explicit buffer(const std::tuple<addr, addr>& bounds) : m_base(std::get<0>(bounds)), m_owner(false) {
+            const auto diff = (std::get<1>(bounds) - m_base).d;
+            m_size = (diff < 0) ? diff : throw std::runtime_error("End is before start of buffer");
         }
 
-        static buffer from_bounds(const addr start, const addr end) {
-            return buffer{start.p, end.i - start.i};
-        }
-
-        static buffer create(const std::size_t size) {
-            return buffer{size};
-        }
-
-        addr rebase(const addr virtual_addr, const addr offset = 0ull) const {
-            return (virtual_addr - m_base) + offset;
-        }
-
+        /// Copy constructor for buffer.
+        /// Buffer does not own memory.
         buffer(const buffer& other) : m_base(other.m_base), m_size(other.m_size), m_owner(false) { }
 
-        buffer& operator=(const buffer& other) {
-            if (this != &other) {
-                free();
-                m_base  = other.m_base;
-                m_size  = other.m_size;
-                m_owner = false;
-            }
-            return *this;
-        }
-
+        /// Move constructor for buffer.
+        /// Transfers ownership and memory.
         buffer(buffer&& other) noexcept :
             m_base(std::exchange(other.m_base, nullptr)),
             m_size(std::exchange(other.m_size, 0)),
             m_owner(std::exchange(other.m_owner, false)) { }
 
+        /// Destructor for buffer.
+        /// Frees owned memory and clears buffer.
+        ~buffer() {
+            clear();
+        }
+
+        /// Checks if buffer is valid.
+        /// Returns true if buffer has memory.
+        operator bool() const {
+            return m_base != nullptr;
+        }
+
+        /// Implicit conversion to addr.
+        /// Returns base address as addr.
+        operator addr() const {
+            return m_base;
+        }
+
+        /// Copy assignment for buffer.
+        /// Buffer does not own memory.
+        buffer& operator=(const buffer& other) {
+            if (this != &other) {
+                clear();
+                m_base = other.m_base;
+                m_size = other.m_size;
+                m_owner = false;
+            }
+            return *this;
+        }
+
+        /// Move assignment for buffer.
+        /// Transfers ownership and memory.
         buffer& operator=(buffer&& other) noexcept {
             if (this != &other) {
-                free();
-                m_base  = std::exchange(other.m_base, nullptr);
-                m_size  = std::exchange(other.m_size, 0);
+                clear();
+                m_base = std::exchange(other.m_base, nullptr);
+                m_size = std::exchange(other.m_size, 0);
                 m_owner = std::exchange(other.m_owner, false);
             }
             return *this;
         }
 
-        ~buffer() {
-            free();
-        }
+        /// Returns base address of buffer.
+        /// Address of first byte.
+        addr base() const { return m_base; }
 
-        addr start() const { return m_base; }
+        /// Returns size of buffer.
+        /// Number of bytes in buffer.
+        std::size_t size() const { return m_size; }
 
+        /// Returns end address of buffer.
+        /// Address after last byte.
         addr end() const { return m_base + m_size; }
 
+        /// Checks if address is within buffer.
+        /// Returns true if address is in range.
         bool contains(const addr addr) const { return addr <= end(); }
 
-        hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char* mask, std::size_t size = 0) const {
-            if (!size) size = strlen(mask);
-            return detail::scan_aob(start(), end(), pattern, mask, size);
+        /// Rebase a virtual address to a new base.
+        /// Returns rebased address.
+        addr rebase(const addr virtual_addr, const addr base = 0ull) const {
+            return (virtual_addr - m_base) + base;
         }
 
-        template <int Size>
-        constexpr hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char (&mask)[Size]) const {
-            return detail::scan_aob(start(), end(), pattern, mask, Size);
-        }
-
-        void resize(const std::size_t new_size) {
-            if (new_size <= m_size) return; // No shrinking for now
-
-            buffer temp(new_size);
-            if (m_base) std::memcpy(temp.m_base, m_base, m_size);
-
+        /// Resize the buffer.
+        /// Changes buffer size and reallocates memory.
+        void resize(const std::size_t size) {
+            buffer temp(size);
+            if (m_base)
+                std::memcpy(temp.m_base, m_base, size);
             *this = std::move(temp);
         }
 
-        addr data() const { return m_base; }
-        std::size_t size() const { return m_size; }
-
-        void set_bounds(const addr start, const addr end) {
-            if (end <= m_base) throw std::runtime_error("End is before start of buffer");
-            m_base = start;
-            m_size = end - m_base;
+        /// Scan buffer for pattern using mask.
+        /// Returns generator of matching addresses.
+        hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char* mask, std::size_t size = 0) const {
+            if (!size) size = strlen(mask);
+            return detail::scan_aob(m_base, end(), pattern, mask, size);
         }
 
-        std::uint8_t& operator[](const std::size_t index) { return m_base[index]; }
-        const std::uint8_t& operator[](const std::size_t index) const { return m_base[index]; }
-
-        operator bool() const { return m_base != nullptr; }
-        operator void*() const { return m_base; }
-        operator std::uintptr_t() const { return reinterpret_cast<std::uintptr_t>(m_base); }
-
-        std::uintptr_t offset(const addr addr) const { return addr.i - reinterpret_cast<std::uintptr_t>(m_base); }
-
-        // Shift buffer to the right
-        template <class T> requires AddressArithmeticOperand<T>
-        friend constexpr buffer operator+(buffer buf, const T off) {
-            const auto normalized = addr::normalize(off);
-
-            buf.m_owner = false;
-            buf.m_base += normalized;
-            buf.m_size -= normalized;
-
-            return buf;
+        /// Scan buffer for pattern using mask array.
+        /// Returns generator of matching addresses.
+        template <int Size>
+        constexpr hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char (&mask)[Size]) const {
+            return detail::scan_aob(m_base, end(), pattern, mask, Size);
         }
     };
 
     /* OS Constants */
 
-    constexpr int page_size = 0x1000;
+    /// OS page size constant.
+    /// Typically 4096 bytes.
+    constexpr uint32_t page_size = 0x1000;
 
-    const buffer um_bounds = buffer::from_bounds(0x000000000000ull, 0x7FFFFFFFFFFFull);
-    const buffer km_bounds = buffer::from_bounds(0x800000000000ull, 0xFFFFFFFFFFFFull);
+    /// User-mode address bounds buffer.
+    /// Range: 0x000000000000 - 0x7FFFFFFFFFFF.
+    constexpr auto um_bounds = buffer({ 0x000000000000ull, 0x7FFFFFFFFFFFull });
+
+    /// Kernel-mode address bounds buffer.
+    /// Range: 0x800000000000 - 0xFFFFFFFFFFFF.
+    constexpr auto km_bounds = buffer({ 0x800000000000ull, 0xFFFFFFFFFFFFull });
 }

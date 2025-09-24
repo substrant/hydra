@@ -4,8 +4,6 @@
 
 #include "hydra/user/process.hpp"
 #include "hydra/util/module.hpp"
-#include "hydra/log/console.hpp"
-#include "hydra/log/progress.hpp"
 #include "hydra/user/mapping.h"
 
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
@@ -331,7 +329,7 @@ namespace hydra {
             const auto virt_size = section->Misc.VirtualSize;
             const auto min_size = std::min(file_size, virt_size);
 
-            cui::out << "[+] Resolving section " << section->Name << "\n";
+            //cui::out << "[+] Resolving section " << section->Name << "\n";
 
             // Attempt to read the entire section from the remote process
             if (m_proc->mm_read(virt_addr, file_addr, min_size)) {
@@ -349,7 +347,7 @@ namespace hydra {
                 const auto time_now = std::chrono::system_clock::now();
 
                 const std::size_t total_pages = ctx.page_count();
-                cui::progress_bar progress(total_pages, "Page");
+                //cui::progress_bar progress(total_pages, "Page");
 
                 // Set up a feedback handler
                 ctx.set_handler([&](memdump_ctx& _, const std::size_t pages_read) -> void {
@@ -367,7 +365,7 @@ namespace hydra {
                         return;
                     }
 
-                    progress.update(pages_read);
+                    //progress.update(pages_read);
                 }, std::chrono::milliseconds(100));
 
                 // Start dump

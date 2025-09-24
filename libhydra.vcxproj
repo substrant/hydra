@@ -7,13 +7,53 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="dependencies\phnt\include\ntafd.h" />
+    <ClInclude Include="dependencies\phnt\include\ntbcd.h" />
+    <ClInclude Include="dependencies\phnt\include\ntdbg.h" />
+    <ClInclude Include="dependencies\phnt\include\ntexapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntgdi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntimage.h" />
+    <ClInclude Include="dependencies\phnt\include\ntintsafe.h" />
+    <ClInclude Include="dependencies\phnt\include\ntioapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntkeapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntldr.h" />
+    <ClInclude Include="dependencies\phnt\include\ntlpcapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntmisc.h" />
+    <ClInclude Include="dependencies\phnt\include\ntmmapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntnls.h" />
+    <ClInclude Include="dependencies\phnt\include\ntobapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntpebteb.h" />
+    <ClInclude Include="dependencies\phnt\include\ntpfapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntpnpapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntpoapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntpsapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntregapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntrtl.h" />
+    <ClInclude Include="dependencies\phnt\include\ntsam.h" />
+    <ClInclude Include="dependencies\phnt\include\ntseapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntsmss.h" />
+    <ClInclude Include="dependencies\phnt\include\ntstrsafe.h" />
+    <ClInclude Include="dependencies\phnt\include\ntsxs.h" />
+    <ClInclude Include="dependencies\phnt\include\nttmapi.h" />
+    <ClInclude Include="dependencies\phnt\include\nttp.h" />
+    <ClInclude Include="dependencies\phnt\include\ntuser.h" />
+    <ClInclude Include="dependencies\phnt\include\ntwmi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntwow64.h" />
+    <ClInclude Include="dependencies\phnt\include\ntxcapi.h" />
+    <ClInclude Include="dependencies\phnt\include\ntzwapi.h" />
+    <ClInclude Include="dependencies\phnt\include\phnt.h" />
+    <ClInclude Include="dependencies\phnt\include\phnt_ntdef.h" />
+    <ClInclude Include="dependencies\phnt\include\phnt_windows.h" />
+    <ClInclude Include="dependencies\phnt\include\smbios.h" />
+    <ClInclude Include="dependencies\phnt\include\subprocesstag.h" />
+    <ClInclude Include="dependencies\phnt\include\usermgr.h" />
+    <ClInclude Include="dependencies\phnt\include\winsta.h" />
     <ClInclude Include="include\hydra\core\enable_shared.hpp" />
     <ClInclude Include="include\hydra\core\handle.hpp" />
     <ClInclude Include="include\hydra\core\noncopyable.hpp" />
     <ClInclude Include="include\hydra\detail\enable_shared.hpp" />
     <ClInclude Include="include\hydra\detail\generator.hpp" />
     <ClInclude Include="include\hydra\detail\noncopyable.hpp" />
-    <ClInclude Include="include\hydra\log\console.hpp" />
     <ClInclude Include="include\hydra\log\progress.hpp" />
     <ClInclude Include="include\hydra\core\generator.hpp" />
     <ClInclude Include="include\hydra\core\memory.hpp" />
@@ -29,7 +69,6 @@
     <ClInclude Include="include\hydra\util\module.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\log\console.cpp" />
     <ClCompile Include="src\runtime\disasm.cpp" />
     <ClCompile Include="src\user\process.cpp" />
     <ClCompile Include="src\user\thread.cpp" />
@@ -66,7 +105,7 @@
     <OutDir>$(ProjectDir)build\bin\$(Configuration)\</OutDir>
     <IntDir>$(ProjectDir)build\obj\$(ProjectName)\$(Configuration)\</IntDir>
     <TargetName>libhydra</TargetName>
-    <ExternalIncludePath>$(ProjectDir)dependencies\zydis\include;$(ProjectDir)\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)\dependencies\phnt\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <ExternalIncludePath>$(ProjectDir)dependencies\zydis\include;$(ProjectDir)dependencies\zydis\dependencies\zycore\include;$(ProjectDir)dependencies\phnt\include;$(ExternalIncludePath)</ExternalIncludePath>
     <IncludePath>$(ProjectDir)include;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

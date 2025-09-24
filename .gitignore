@@ -2,3 +2,4 @@ dependencies/
 build/
 *.user
 *.filters
+.vs/

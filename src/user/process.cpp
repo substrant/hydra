@@ -1,0 +1,421 @@
+#include <queue>
+#include <iostream>
+#include <chrono>
+
+#include "hydra/user/process.hpp"
+#include "hydra/user/toolhelp.hpp"
+
+namespace hydra {
+    using hw_clock = std::chrono::high_resolution_clock;
+
+    // This should not change
+    const std::atomic<bool> memdump_ctx::dummy_flag = true;
+
+    void process::init() {
+        if (!_handle.is_valid())
+            throw std::runtime_error("Invalid handle provided");
+        _self = shared_from_this();
+    }
+
+    bool process::scan_linked_modules() {
+        constexpr auto max_modules = 2048u;
+        const auto modules_raw = std::make_unique<HMODULE[]>(max_modules);
+
+        DWORD modules_bytes;
+        MODULEINFO module_info;
+
+        // Enumerate the modules into modules_raw
+        if (!EnumProcessModulesEx(_handle, modules_raw.get(), sizeof(HMODULE) * max_modules, &modules_bytes, LIST_MODULES_ALL))
+            return false;
+
+        const auto module_count = modules_bytes / sizeof(HMODULE);
+
+        char path_buf[MAX_PATH];
+        char name_buf[MAX_PATH];
+
+        DWORD path_len;
+        DWORD name_len;
+
+        // Preallocate modules
+        _modules.reserve(module_count);
+
+        // Probe for module info
+        for (auto i = 0u; i < module_count; i++) {
+            const auto module_handle = modules_raw[i];
+
+            // Get the module's information
+            if (!GetModuleInformation(_handle, module_handle, &module_info, sizeof(module_info)))
+                continue;
+
+            // Get the path of the module
+            if ((path_len = GetModuleFileNameExA(_handle, module_handle, path_buf, sizeof(path_buf))) == 0)
+                continue;
+
+            // Get the module name only (strip path)
+            if ((name_len = GetModuleBaseNameA(_handle, module_handle, name_buf, sizeof(name_buf))) == 0)
+                continue;
+
+            // Prepare information
+            const auto path = std::string(path_buf, path_len);
+            const auto name = std::string(name_buf, name_len);
+            const auto base = reinterpret_cast<std::uintptr_t>(module_info.lpBaseOfDll);
+            const auto ptr = pe_module::from_header(_self, base, name, path);
+
+            // Push module to list and dict
+            _modules_list.push_back(ptr);
+            _modules.insert(std::make_pair(base, ptr));
+        }
+
+        return _modules_list.size() > 0;
+    }
+
+    std::shared_ptr<process> process::from_handle(const HANDLE handle) {
+        std::shared_ptr<process> proc(new process(handle, true));
+        proc->init();
+        return proc;
+    }
+
+    std::shared_ptr<process> process::from_id(const DWORD id) {
+        std::shared_ptr<process> proc(new process(OpenProcess(PROCESS_ALL_ACCESS, FALSE, id)));
+        proc->init();
+        return proc;
+    }
+
+    std::shared_ptr<process> process::from_window(const std::string_view name) {
+        const auto proc_window = FindWindowA(nullptr, name.data());
+        if (proc_window == nullptr)
+            return nullptr;
+
+        DWORD proc_id;
+        if (GetWindowThreadProcessId(proc_window, &proc_id); proc_id == NULL)
+            return nullptr;
+
+        const auto handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, proc_id);
+        return from_handle(handle);
+    }
+
+    std::shared_ptr<process> process::from_module(const std::string_view name) {
+        for (const auto& entry : toolhelp::get_processes()) {
+            if (entry.szExeFile == name)
+                return from_id(entry.th32ProcessID);
+        }
+        return nullptr;
+    }
+
+    bool process::is_valid() const {
+        return _handle.is_valid();
+    }
+
+    process::operator HANDLE() const {
+        return _handle;
+    }
+
+    process::operator DWORD() const {
+        return _handle.is_valid() ? GetProcessId(_handle) : -1;
+    }
+
+    bool process::kill(const LONG exit_code, NTSTATUS* p_status) {
+        NTSTATUS dummy_status;
+        if (!p_status) p_status = &dummy_status;
+
+        *p_status = NtTerminateProcess(_handle, exit_code);
+        _handle = nullptr;
+
+        return NT_SUCCESS(*p_status);
+    }
+
+    detail::generator<std::shared_ptr<thread>> process::threads() const {
+        for (const auto&& entry : toolhelp::get_threads(*this))
+            co_yield std::shared_ptr(thread::from_id(entry.th32ThreadID));
+    }
+
+    void process::suspend() const {
+        for (auto&& thread : threads())
+            thread->suspend();
+    }
+
+    void process::resume() const {
+        for (auto&& thread : threads())
+            thread->resume();
+    }
+
+    detail::generator<std::shared_ptr<pe_module>> process::linked_modules() {
+        if (_modules.empty() && !scan_linked_modules())
+            throw std::runtime_error("Failed to enumerate linked modules");
+
+        for (auto&& v : _modules | std::views::values)
+            co_yield v;
+    }
+
+    detail::generator<std::shared_ptr<pe_module>> process::unlinked_modules() {
+        std::unordered_set<void*> linked_bases;
+
+        // Scan for linked modules
+        if (_modules.empty() && !scan_linked_modules())
+            throw std::runtime_error("Failed to enumerate linked modules");
+
+        // Allocate space and fill bases
+        linked_bases.reserve(_modules.size());
+        for (auto&& v : _modules | std::views::values)
+            linked_bases.insert(v->remote_buffer().data());
+
+        for (const auto mbi : mm_pages(mem::um_bounds)) {
+            // Is this memory accessible?
+            if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_NOACCESS || mbi.Protect & PAGE_GUARD))
+                continue;
+
+            // Allocate data for page and read it
+            auto buffer = mem::buffer::create(mem::page_size);
+            if (!mm_read(mbi.BaseAddress, buffer)) continue;
+
+            // If not adr PE or if bound to PEB, skip
+            if (!pe_image::verify_header(buffer) || linked_bases.contains(mbi.BaseAddress))
+                continue;
+
+            // This is an unlinked module
+            co_yield pe_module::from_header(_self, mbi.BaseAddress, "unknown");
+        }
+    }
+
+    std::shared_ptr<pe_module> process::module(const std::optional<std::string>& name) {
+        // Scan for linked modules
+        if (_modules.empty() && !scan_linked_modules())
+            throw std::runtime_error("Failed to enumerate linked modules");
+
+        if (name == std::nullopt)
+            return _modules_list[0]; // first always
+
+        // Find our module
+        for (const auto& v : _modules_list)
+            if (v->file_name() == name) return v;
+
+        return nullptr;
+    }
+
+    std::shared_ptr<window> process::main_window() const {
+        const HWND handle = window::enumerate(window_cond::owner, *this);
+        return handle != nullptr ? std::make_shared<window>(handle) : nullptr;
+    }
+
+    std::size_t process::mm_read(const mem::addr base, const mem::buffer& buffer, std::size_t size) const {
+        size = (size == 0) ? buffer.size() : size;
+        if (size == 0 || size > buffer.size()) return false;
+
+        SIZE_T written;
+        if (!ReadProcessMemory(_handle, base, buffer.data(), size, &written))
+            return 0;
+
+        return written;
+    }
+
+    std::size_t process::mm_read(const mem::addr base, const mem::addr buffer, const std::size_t size) const {
+        SIZE_T written;
+        return ReadProcessMemory(_handle, base, buffer, size, &written) ? written : 0;
+    }
+
+    bool process::mm_query(const mem::addr base, MEMORY_BASIC_INFORMATION& mbi) const {
+        return VirtualQueryEx(_handle, base, &mbi, sizeof(mbi));
+    }
+
+    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const mem::buffer& buffer) const {
+        MEMORY_BASIC_INFORMATION mbi;
+        std::uintptr_t at = buffer.start();
+
+        while (at < buffer.end() && mm_query(at, mbi)) {
+            co_yield mbi;
+            at += mbi.RegionSize;
+        }
+    }
+
+    DWORD process::mm_protect(const mem::addr base, const std::size_t size, const DWORD new_prot) const {
+        DWORD old_prot;
+        return VirtualProtectEx(_handle, base, size, new_prot, &old_prot) ? new_prot : 0;
+    }
+
+    // Returns amount of pages read
+    std::size_t process::mm_dump(memdump_ctx params) const {
+        MEMORY_BASIC_INFORMATION mbi;
+        std::deque<std::uintptr_t> page_queue;
+        std::size_t pages_read = 0;
+
+        // Fill buffer range with sentinel byte
+        std::memset(params.dest, params.sentinel, params.size);
+
+        // Helper function to read page and track progress
+        const auto read_page = [&](const std::uintptr_t va) -> bool {
+            const auto offset = va - params.base.i;
+            const auto success = mm_read(va, params.dest + offset, mem::page_size);
+
+            if (success) pages_read++;
+            return success;
+        };
+
+        // Helper function for status reports
+        auto last_tick = hw_clock::now();
+        const auto signal_report = [&] -> void {
+            const auto current_tick = hw_clock::now();
+            if (current_tick - last_tick < params._report_interval)
+                return;
+
+            if (params._report_handler.has_value())
+                (*params._report_handler)(params, pages_read);
+
+            last_tick = current_tick;
+        };
+
+        // Phase 1:
+        //   Go through each page in the region and attempt to read
+        //   If we can't read the page, queue it for the 2nd phase
+        for (std::uintptr_t page_base = params.base; page_base < params.end_addr(); page_base += mem::page_size) {
+            if (!mm_query(page_base, mbi)) {
+                // Skip page
+                continue;
+            }
+            
+            // if NOACCESS or we cannot read the page, queue it
+            if (mbi.Protect & PAGE_NOACCESS || !read_page(page_base))
+                page_queue.push_back(page_base);
+        }
+
+        // Phase 2:
+        //   Loop queue until all pages are able to be read or adr
+        //   cancellation is requested
+        while (!page_queue.empty() && !params.stop_requested()) {
+            signal_report();
+
+            auto page = page_queue.front();
+            page_queue.pop_front();
+
+            if (!read_page(page)) {
+                // Requeue after querying the other pages
+                page_queue.push_back(page);
+            }
+        }
+
+        // Revert stop flag if set
+        params.reset_flag();
+
+        return pages_read;
+    }
+
+    std::vector<mem::addr> process::mm_scan_heap(const std::uint8_t* pattern, const char* mask) const {
+        std::vector<mem::addr> results;
+        MEMORY_BASIC_INFORMATION mbi;
+        auto time = std::chrono::system_clock::now();
+
+        for (std::uintptr_t addr = mem::um_bounds.start(); addr < mem::um_bounds.end(); ) {
+            if (!mm_query(addr, mbi)) {
+                addr += mem::page_size;
+                continue;
+            }
+
+            const auto elapsed = std::chrono::system_clock::now() - time;
+            if (elapsed > std::chrono::milliseconds(1000)) {
+                time = std::chrono::system_clock::now();
+                std::cout << "\r[+] Scanning region " << reinterpret_cast<void*>(addr) << "...";
+            }
+
+            const bool heap_like =
+                mbi.State == MEM_COMMIT &&
+                mbi.Type & MEM_PRIVATE &&
+                (mbi.Protect == PAGE_READWRITE || mbi.Protect == PAGE_EXECUTE_READWRITE);
+
+            if (!heap_like) {
+                addr = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+                continue;
+            }
+
+            auto dump = mem::buffer::create(mbi.RegionSize);
+            if (mm_read(mbi.BaseAddress, dump)) {
+                for (const auto& match : dump.scan_aob(pattern, mask)) {
+                    const auto offset = match - dump.data();
+                    results.emplace_back(mem::addr(mbi.BaseAddress) + offset);
+                }
+            }
+
+            addr = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+        }
+
+        std::cout << "\n";
+
+        return results;
+    }
+
+    mem::addr process::mm_alloc(const mem::addr base, const std::size_t size, const DWORD flags, const DWORD protect) const {
+        return VirtualAllocEx(_handle, base, size, flags, protect);
+    }
+
+    mem::addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
+        return mm_alloc(nullptr, size, flags, protect);
+    }
+
+    mem::addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
+        return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
+    }
+
+    std::size_t process::mm_write(const mem::addr base, const mem::buffer& buffer, std::size_t size) const {
+        if (size == 0) size = buffer.size();
+        if (size > buffer.size()) return 0;
+
+        SIZE_T written;
+        if (!WriteProcessMemory(_handle, base, buffer.data(), size, &written))
+            return 0;
+
+        return written;
+    }
+
+    mem::addr process::mm_inject(const mem::buffer& source, const DWORD protect) const {
+        const auto base = mm_alloc(nullptr, source.size(), MEM_COMMIT | MEM_RESERVE, protect);
+        if (base == nullptr) return nullptr;
+
+        if (!mm_write(base, source)) {
+            mm_free(base);
+            return nullptr;
+        }
+
+        return base;
+    }
+
+    bool process::mm_free(const mem::addr base, const DWORD flags) const {
+        return VirtualFreeEx(_handle, base, 0, flags);
+    }
+
+    map_status process::pe_mmap(pe_image& pe, mapping_info* info_out) const {
+        // Allocate memory in the target process for the module
+        info_out->size = pe.size(pe_size::mapped);
+        info_out->header_size = pe.size(pe_size::header);
+        info_out->base = mm_alloc(info_out->size, PAGE_EXECUTE_READWRITE);
+
+        if (info_out->base == NULL) {
+            std::cout << "[-] Failed to allocate memory in target process.\n";
+            return map_status::failed_allocation;
+        }
+
+        std::cout << "[+] Base Address: 0x" << std::hex << info_out->base << "\n";
+
+        // Copy header information to the target process
+        if (!mm_write(info_out->base, pe.m_buffer, info_out->header_size))
+            return map_status::failed_write;
+
+        // Write sections to the target process
+        for (const auto& section : pe.sections()) {
+            const auto section_size = section->size();
+
+            // Skip empty sections
+            if (section_size < 1) continue;
+
+            // Calculate the destination in the target process
+            const auto dest_address = reinterpret_cast<std::uintptr_t>(info_out->base) + section->raw()->VirtualAddress;
+
+            // Write the section data to the target process
+            if (!mm_write(dest_address, pe.m_buffer + section->raw()->PointerToRawData, section_size)) {
+                std::cout << "[-] Failed to write section to target process.\n";
+                return map_status::failed_write;
+            }
+
+            std::cout << "[+] Mapped " << section->name() << " => 0x" << std::hex << dest_address << " (" << std::dec << section_size << " bytes)\n";
+        }
+
+        return map_status::success;
+    }
+}

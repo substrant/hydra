@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="include\hydra\core\enable_shared.hpp" />
+    <ClInclude Include="include\hydra\core\handle.hpp" />
+    <ClInclude Include="include\hydra\core\noncopyable.hpp" />
+    <ClInclude Include="include\hydra\detail\enable_shared.hpp" />
+    <ClInclude Include="include\hydra\detail\generator.hpp" />
+    <ClInclude Include="include\hydra\detail\noncopyable.hpp" />
+    <ClInclude Include="include\hydra\log\console.hpp" />
+    <ClInclude Include="include\hydra\log\progress.hpp" />
+    <ClInclude Include="include\hydra\core\generator.hpp" />
+    <ClInclude Include="include\hydra\core\memory.hpp" />
+    <ClInclude Include="include\hydra\core\module.hpp" />
+    <ClInclude Include="include\hydra\runtime\disasm.hpp" />
+    <ClInclude Include="include\hydra\user\mapping.h" />
+    <ClInclude Include="include\hydra\user\process.hpp" />
+    <ClInclude Include="include\hydra\user\thread.hpp" />
+    <ClInclude Include="include\hydra\user\toolhelp.hpp" />
+    <ClInclude Include="include\hydra\user\window.hpp" />
+    <ClInclude Include="include\hydra\util\handle.hpp" />
+    <ClInclude Include="include\hydra\util\memory.hpp" />
+    <ClInclude Include="include\hydra\util\module.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\log\console.cpp" />
+    <ClCompile Include="src\runtime\disasm.cpp" />
+    <ClCompile Include="src\user\process.cpp" />
+    <ClCompile Include="src\user\thread.cpp" />
+    <ClCompile Include="src\user\toolhelp.cpp" />
+    <ClCompile Include="src\user\window.cpp" />
+    <ClCompile Include="src\util\module.cpp" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{9262b35b-7856-401c-88db-325493b685ec}</ProjectGuid>
+    <RootNamespace>
+    </RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>Substrant.Hydra</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <OutDir>$(ProjectDir)build\bin\$(Configuration)\</OutDir>
+    <IntDir>$(ProjectDir)build\obj\$(ProjectName)\$(Configuration)\</IntDir>
+    <TargetName>libhydra</TargetName>
+    <ExternalIncludePath>$(ProjectDir)dependencies\zydis\include;$(ProjectDir)\dependencies\zydis\dependencies\zycore\include;$(ProjectDir)\dependencies\phnt\include;$(ExternalIncludePath)</ExternalIncludePath>
+    <IncludePath>$(ProjectDir)include;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>ZYDIS_STATIC_BUILD;WIN32_LEAN_AND_MEAN;NOMINMAX;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp23</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <UndefinePreprocessorDefinitions>UNICODE</UndefinePreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+    <Lib>
+      <AdditionalLibraryDirectories>$(ProjectDir)dependencies\build\libs\$(Configuration);$(ProjectDir)build\bin\$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Lib>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

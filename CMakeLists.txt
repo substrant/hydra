@@ -45,7 +45,7 @@ file(GLOB_RECURSE HYDRA_HEADERS
 )
 
 # Create static library
-add_library(libhydra STATIC ${HYDRA_SOURCES})
+add_library(libhydra STATIC ${HYDRA_SOURCES} ${HYDRA_HEADERS})
 
 # Configure basic properties
 set_target_properties(libhydra PROPERTIES

@@ -1,5 +1,12 @@
+# Project files related to our build system
 dependencies/
 build/
+
+# Visual Studio files
+.vs/
 *.user
 *.filters
-.vs/
+*.suo
+
+# Clangd cache
+.cache/

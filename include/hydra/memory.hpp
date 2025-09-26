@@ -87,6 +87,7 @@ namespace hy::mem {
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>)                return reinterpret_cast<std::uintptr_t>(value);
             else if constexpr (std::is_integral_v<std::remove_cvref_t<T>>)               return static_cast<std::uintptr_t>(value);
             else                                                                         static_assert([]{ return false; }(), "Unsupported source type for address arithmetic");
+            return 0;
         }
 
         /// Convert uintptr_t to various types.
@@ -98,6 +99,7 @@ namespace hy::mem {
             else if constexpr (std::same_as<std::remove_cvref_t<Rt>, std::nullptr_t>)     return nullptr;
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<Rt>>)                return reinterpret_cast<Rt>(value);
             else                                                                          static_assert([]{ return false; }(), "Unsupported return type for address arithmetic");
+            return 0;
         }
 
         /// Construct addr from address-like type.

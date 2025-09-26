@@ -121,19 +121,21 @@ namespace hy::mem {
         }
 
         /// Addition operator for addr arithmetic.
-        /// Adds operand to address and returns result.
+        /// Handles addr + addr, addr + integral, addr + pointer
         template <detail::AddressArithmeticOperand T>
-        friend constexpr addr operator+(addr a, const T& rhs) {
-            a.i += normalize(rhs);
-            return a;
+        friend constexpr addr operator+(const addr& a, const T& rhs) {
+            addr result = a;
+            result.i += normalize(rhs);
+            return result;
         }
 
         /// Subtraction operator for addr arithmetic.
-        /// Subtracts operand from address and returns result.
+        /// Handles addr - addr, addr - integral, addr - pointer
         template <detail::AddressArithmeticOperand T>
-        friend constexpr addr operator-(addr a, const T& rhs) {
-            a.i -= normalize(rhs);
-            return a;
+        friend constexpr addr operator-(const addr& a, const T& rhs) {
+            addr result = a;
+            result.i -= normalize(rhs);
+            return result;
         }
 
         /// Three-way comparison operator for addr.
@@ -245,8 +247,8 @@ namespace hy::mem {
 
         /// Wraps a tuple of address bounds as buffer.
         /// Buffer does not own memory.
-        explicit buffer(const std::tuple<addr, addr>& bounds) : m_base(std::get<0>(bounds)), m_owner(false) {
-            const auto diff = (std::get<1>(bounds) - m_base).d;
+        explicit buffer(const addr start, const addr end) : m_base(start.p), m_owner(false) {
+            const auto diff = (end - m_base).d;
             m_size = (diff < 0) ? diff : throw std::runtime_error("End is before start of buffer");
         }
 

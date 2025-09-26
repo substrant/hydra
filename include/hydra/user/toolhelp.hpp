@@ -1,10 +1,9 @@
 #pragma once
 
-#include <phnt_windows.h>
-#include <phnt.h>
+#include "detail/pch.hpp"
 
-#include "hydra/util/memory.hpp"
-#include "hydra/detail/generator.hpp"
+#include "handle.hpp"
+#include "detail/generator.hpp"
 
 #ifdef __cplusplus
 extern "C" {
@@ -123,7 +122,7 @@ BOOL WINAPI Module32Next(HANDLE hSnapshot, LPMODULEENTRY32 lpme);
 } /* extern "C" */
 #endif
 
-namespace hydra::toolhelp {
+namespace hy::toolhelp {
     template <class SnapClass>
     using callback = BOOL(WINAPI*)(HANDLE, SnapClass*);
 

@@ -1,49 +1,43 @@
 #pragma once
 
-#include <phnt_windows.h>
-#include <phnt.h>
-#include <Psapi.h>
+#include "detail/pch.hpp"
 
-#include <stdexcept>
-#include <vector>
-#include <memory>
-#include <functional>
-#include <optional>
-#include <ranges>
-#include <filesystem>
-#include <unordered_set>
-#include <unordered_map>
+#include "module.hpp"
+#include "memory.hpp"
+#include "detail/generator.hpp"
+#include "handle.hpp"
+#include "detail/noncopyable.hpp"
+#include "user/window.hpp"
 
-#include "hydra/util/module.hpp"
-#include "hydra/util/memory.hpp"
-#include "hydra/detail/generator.hpp"
-#include "hydra/util/handle.hpp"
-#include "hydra/detail/noncopyable.hpp"
-#include "hydra/user/window.hpp"
-
-#include "phnt_ntdef.h"
-#include <ntpsapi.h>
-
-#include "mapping.h"
 #include "thread.hpp"
 
-// Forward-decl
-namespace hydra {
+namespace hy {
+    // Forward-decl
     class process;
-    class memdump_ctx;
 
-    template <class T>
-    concept is_process = std::is_class_v<T>; 
+    struct mapping_info {
+        void* base = nullptr;
+        size_t size = 0;
+        size_t header_size = 0;
+    };
+
+    struct dump_context {
+        std::uint8_t sentinel = 0;
+        std::optional<std::function<void(const dump_context*, std::size_t)>> callback = std::nullopt;
+        std::atomic<bool> stop = false;
+        double clear_ratio = 1.0;
+        std::optional<std::chrono::milliseconds> clear_time;
+    };
 
     class process : public detail::noncopyable, public std::enable_shared_from_this<process> {
-        std::shared_ptr<process> _self = nullptr;
-        unique_handle<CloseHandle> _handle;
-
-        std::unordered_map<std::uintptr_t, std::shared_ptr<remote_module>> _modules;
-        std::vector<std::shared_ptr<remote_module>> _modules_list;
+        std::shared_ptr<process> m_this = nullptr;
+        unique_handle<CloseHandle> m_handle;
+        
+        std::unordered_map<std::uintptr_t, std::shared_ptr<remote_module>> m_modules;
+        std::vector<std::shared_ptr<remote_module>> m_module_list;
 
         /* Unsafe constructor */
-        explicit process(const HANDLE handle, const bool no_dispose = false) : _handle(handle, no_dispose) { }
+        explicit process(const HANDLE handle, const bool no_dispose = false) : m_handle(handle, no_dispose) { }
 
         void init();
 
@@ -95,25 +89,21 @@ namespace hydra {
 
         std::size_t mm_read(mem::addr base, const mem::buffer& buffer, std::size_t size = 0) const;
 
-        std::size_t mm_read(mem::addr base, mem::addr buffer, std::size_t size = 0) const;
+        DWORD mm_protect(mem::addr base, std::size_t size, DWORD new_prot) const;
+
+        std::size_t mm_write(mem::addr base, const mem::buffer& buffer, std::size_t size = 0) const;
 
         bool mm_query(mem::addr base, MEMORY_BASIC_INFORMATION& mbi) const;
 
         detail::generator<MEMORY_BASIC_INFORMATION> mm_pages(const mem::buffer& buffer) const;
 
-        DWORD mm_protect(mem::addr base, std::size_t size, DWORD new_prot) const;
-
-        std::size_t mm_dump(memdump_ctx params) const;
-
-        std::vector<mem::addr> mm_scan_heap(const std::uint8_t* pattern, const char* mask) const;
+        std::size_t mm_dump(mem::addr base, const mem::buffer& buffer, dump_context* ctx) const;
 
         mem::addr mm_alloc(mem::addr base, std::size_t size, DWORD flags, DWORD protect) const;
 
         mem::addr mm_alloc(std::size_t size, DWORD flags, DWORD protect) const;
 
         mem::addr mm_alloc(std::size_t size, DWORD protect) const;
-
-        std::size_t mm_write(mem::addr base, const mem::buffer& buffer, std::size_t size = 0) const;
 
         mem::addr mm_inject(const mem::buffer& source, DWORD protect) const;
 
@@ -122,6 +112,10 @@ namespace hydra {
         /* PE functions */
 
         map_status pe_mmap(pe_image& pe, mapping_info* info_out) const;
+
+        /* Scanning functions */
+
+        std::vector<mem::addr> scan_heap(const std::uint8_t* pattern, const char* mask) const;
     };
 
     enum class page_action : std::uint8_t {
@@ -130,51 +124,4 @@ namespace hydra {
     };
 
     using page_cb = std::function<page_action(MEMORY_BASIC_INFORMATION&)>;
-
-    class memdump_ctx {
-    public:
-        friend class process;
-
-        // Required information for dumping
-        mem::addr base;
-        mem::addr dest;
-        std::size_t size;
-        std::uint8_t sentinel = 0xCC; // Fill unread memory with this byte. int 3 (0xCC) is good for decoder.
-        std::atomic<bool>* stop_flag = const_cast<std::atomic<bool>*>(&dummy_flag);
-
-        explicit memdump_ctx(const mem::addr base, const mem::buffer& buffer)
-            : base(base), dest(buffer.data()), size(buffer.size()) {
-
-            if (base.i % mem::page_size != 0)
-                throw std::runtime_error("Misaligned base address");
-        }
-
-        ~memdump_ctx() {
-            // Reset stop flag
-            *stop_flag = false;
-        }
-
-        std::size_t page_count() const { return size / mem::page_size; }
-
-        mem::addr end_addr() const { return base + size; }
-
-        bool stop_requested() const { return *stop_flag; }
-
-        void reset_flag() const { *stop_flag = false; }
-
-        void set_handler(const std::function<void(memdump_ctx&, std::size_t)>& handler, const std::chrono::milliseconds interval) {
-            if (_report_handler.has_value())
-                throw std::logic_error("Cannot overwrite immutable handler");
-
-            _report_handler = handler;
-            _report_interval = interval;
-        }
-
-    private:
-        // Feedback and debugging
-        std::chrono::milliseconds _report_interval = std::chrono::milliseconds::max();
-        std::optional<std::function<void(memdump_ctx&, std::size_t)>> _report_handler = std::nullopt;
-
-        static const std::atomic<bool> dummy_flag;
-    };
 }

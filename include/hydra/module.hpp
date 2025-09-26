@@ -1,17 +1,11 @@
 #pragma once
 
-#include <cstdint>
-#include <vector>
-#include <memory>
-#include <unordered_map>
-#include <filesystem>
-#include <fstream>
-
 #include "memory.hpp"
 
-namespace hydra {
+namespace hy {
     // Forward-decl
     class process;
+    struct dump_context;
     class pe_section;
 
     // status > 0 = yay
@@ -44,7 +38,7 @@ namespace hydra {
         std::unordered_map<std::string, std::shared_ptr<pe_section>> m_sections_map{};
         std::vector<std::shared_ptr<pe_section>> m_sections_lst{};
         
-        explicit pe_image(const mem::buffer& buffer) : m_buffer(buffer) { }
+        explicit pe_image(mem::buffer buffer) : m_buffer(std::move(buffer)) { }
 
     public:
         explicit pe_image() {}
@@ -98,9 +92,9 @@ namespace hydra {
 
         std::shared_ptr<process> proc() const { return m_proc; }
 
-        mem::buffer remote_buffer() const { return mem::buffer::from_base(m_base, size(pe_size::mapped)); }
+        mem::buffer remote_buffer() const { return mem::buffer(m_base, size(pe_size::mapped)); }
 
-        bool dump_image(std::atomic<bool>& stop, double clear_ratio, int wait_ms = 10000);
+        bool dump_image(const hy::mem::buffer& buffer, dump_context* ctx);
 
         std::string_view file_name() const { return m_name; }
 
@@ -127,20 +121,22 @@ namespace hydra {
         std::shared_ptr<remote_module> module() const { return std::dynamic_pointer_cast<remote_module>(m_image); }
 
         mem::addr local_base() const {
-            return m_image->local_buffer().data() + m_header.PointerToRawData;
+            return m_image->local_buffer().base() + m_header.PointerToRawData;
         }
 
         mem::buffer local_buffer(const pe_size size = pe_size::file) const {
-            return mem::buffer::from_base(local_base(), size == pe_size::mapped ? m_header.Misc.VirtualSize : m_header.SizeOfRawData);
+            return { local_base(), size == pe_size::mapped ? m_header.Misc.VirtualSize : m_header.SizeOfRawData };
         }
 
         mem::addr remote_base() const {
             const auto mod = module();
-            return mod ? mod->remote_buffer().data() + m_header.VirtualAddress : nullptr;
+            return mod
+                ? mod->remote_buffer().base() + m_header.VirtualAddress
+                : nullptr;
         }
 
         mem::buffer remote_buffer(const pe_size size = pe_size::mapped) const {
-            return mem::buffer::from_base(remote_base(), size == pe_size::mapped ? m_header.Misc.VirtualSize : m_header.SizeOfRawData);
+            return { remote_base(), size == pe_size::mapped ? m_header.Misc.VirtualSize : m_header.SizeOfRawData };
         }
 
         std::string_view name() const {

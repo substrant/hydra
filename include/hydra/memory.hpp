@@ -1,13 +1,17 @@
 #pragma once
 
-#include "hydra/detail/generator.hpp"
+#include "detail/pch.hpp"
+#include "detail/generator.hpp"
 
-namespace hydra::mem {
+namespace hy::mem {
     /// Represents a generic address type.
     /// Supports automatic casting and arithmetic.
     struct addr;
 
     namespace detail {
+        template <class T>
+        concept PrimitiveObject = std::default_initializable<T>;
+
         template <class T>
         concept PointerType = std::is_pointer_v<std::remove_cvref_t<T>> || std::same_as<std::remove_cvref_t<T>, std::uintptr_t>;
 
@@ -17,8 +21,12 @@ namespace hydra::mem {
         template <class T>
         concept AddressLike =
             std::same_as<std::remove_cvref_t<T>, addr> ||
+            std::same_as<std::remove_cvref_t<T>, std::nullptr_t> ||
             std::same_as<std::remove_cvref_t<T>, std::uintptr_t> ||
             std::is_pointer_v<std::remove_cvref_t<T>>;
+
+        template <class T>
+        concept AddressPrimitive = AddressLike<T> && !std::same_as<std::remove_cvref_t<T>, addr>;
 
         template <class T>
         concept AddressArithmeticOperand = AddressLike<T> || std::is_integral_v<T>;
@@ -40,22 +48,6 @@ namespace hydra::mem {
         /// Default constructor for addr.
         /// Initializes to nullptr.
         constexpr addr() : p(nullptr) { }
-
-        /// Construct addr from void pointer.
-        /// Sets address from pointer value.
-        constexpr addr(void* ptr) : p(static_cast<std::uint8_t*>(ptr)) { }
-
-        /// Construct addr from integer value.
-        /// Sets address from integer.
-        constexpr addr(const std::uintptr_t addr) : i(addr) { }
-
-        /// Construct addr from nullptr.
-        /// Sets address to null.
-        constexpr addr(std::nullptr_t) : p(nullptr) { }
-
-        /// Construct addr from byte pointer.
-        /// Sets address from byte pointer.
-        constexpr addr(std::uint8_t* ptr) : p(ptr) { }
 
         /// Pre-increment operator for addr.
         /// Increments address by one.
@@ -91,6 +83,7 @@ namespace hydra::mem {
         static constexpr std::uintptr_t normalize(const T& value) {
             if      constexpr (std::same_as<std::remove_cvref_t<T>, addr>)               return value.i;
             else if constexpr (std::same_as<std::remove_cvref_t<T>, std::uintptr_t>)     return value;
+            else if constexpr (std::same_as<std::remove_cvref_t<T>, std::nullptr_t>)     return 0;
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>)                return reinterpret_cast<std::uintptr_t>(value);
             else if constexpr (std::is_integral_v<std::remove_cvref_t<T>>)               return static_cast<std::uintptr_t>(value);
             else                                                                         static_assert([]{ return false; }(), "Unsupported source type for address arithmetic");
@@ -102,6 +95,7 @@ namespace hydra::mem {
         static constexpr Rt convert(std::uintptr_t value) {
             if      constexpr (std::same_as<std::remove_cvref_t<Rt>, addr>)               return addr(value);
             else if constexpr (std::same_as<std::remove_cvref_t<Rt>, std::uintptr_t>)     return value;
+            else if constexpr (std::same_as<std::remove_cvref_t<Rt>, std::nullptr_t>)     return nullptr;
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<Rt>>)                return reinterpret_cast<Rt>(value);
             else                                                                          static_assert([]{ return false; }(), "Unsupported return type for address arithmetic");
         }
@@ -113,7 +107,7 @@ namespace hydra::mem {
 
         /// Implicit conversion to address-like type.
         /// Converts addr to pointer, integer, or addr type.
-        template <detail::AddressLike T> requires detail::AddressLike<T>
+        template <detail::AddressLike T> requires (!std::is_same_v<std::nullptr_t, std::remove_cvref_t<T>>)
         constexpr operator T() const {
             return convert<T>(i);
         }
@@ -142,9 +136,9 @@ namespace hydra::mem {
 
         /// Three-way comparison operator for addr.
         /// Compares two addresses or address-like values.
-        template <detail::AddressArithmeticOperand T, detail::HydraAddress Lhs>
+        template <detail::AddressArithmeticOperand T, detail::AddressArithmeticOperand Lhs>
         friend constexpr std::strong_ordering operator<=>(const Lhs& lhs, const T& rhs) {
-            const auto li = lhs.i;
+            const auto li = addr(lhs).i;
             const auto ri = normalize(rhs);
 
             if (li == ri) return std::strong_ordering::equal;
@@ -161,6 +155,12 @@ namespace hydra::mem {
 #   pragma pack(pop)
 
     namespace detail {
+        template <typename T>
+        concept AddressCastable = requires(T t, addr a) {
+            { addr{ t } };
+            { static_cast<T>(a) };
+        };
+
         inline bool match_aob(const addr base, const std::uint8_t* pattern, const char* mask, const std::size_t size) {
             for (std::size_t off = 0; off < size; off++) {
                 if (mask[off] != '?' && pattern[off] != *static_cast<std::uint8_t*>(base + off))
@@ -169,7 +169,7 @@ namespace hydra::mem {
             return true;
         }
 
-        inline hydra::detail::generator<addr> scan_aob(const addr start_addr, const addr end_addr, const std::uint8_t* pattern, const char* mask, const std::size_t size) {
+        inline hy::detail::generator<addr> scan_aob(const addr start_addr, const addr end_addr, const std::uint8_t* pattern, const char* mask, const std::size_t size) {
             for (auto addr = start_addr; addr < end_addr; ++addr) {
                 if (match_aob(addr, pattern, mask, size))
                     co_yield addr;
@@ -183,12 +183,14 @@ namespace hydra::mem {
         std::uint8_t* m_base = nullptr;
         std::size_t   m_size = 0;
         bool          m_owner;
+        bool          m_zero = false;
 
         void alloc(const std::size_t size) {
             clear(); // Free old data if needed
 
             m_base = static_cast<std::uint8_t*>(VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
             if (!m_base) throw std::runtime_error("VirtualAlloc failed");
+            if (m_zero) std::memset(m_base, 0, size);
 
             m_size = size;
             m_owner = true;
@@ -208,16 +210,25 @@ namespace hydra::mem {
 
         /// Allocates a buffer of given size.
         /// Buffer owns its memory.
-        explicit buffer(const std::size_t size) : m_size(size), m_owner(true) { alloc(m_size); }
+        static buffer create(const std::size_t size, const bool zero = false) {
+            buffer buf;
+
+            buf.m_size = size;
+            buf.m_owner = true;
+            buf.m_zero = zero;
+
+            buf.alloc(size);
+            return buf;
+        }
 
         /// Wraps an existing address as buffer.
         /// Buffer does not own memory.
-        explicit buffer(const addr base, const std::size_t size = 0) : m_base(base.p), m_size(size), m_owner(false) { }
+        buffer(const addr base, const std::size_t size = 0) : m_base(base.p), m_size(size), m_owner(false) { }
 
         /// Wraps an array as buffer.
         /// Buffer does not own memory.
         template <std::size_t Size, class T>
-        explicit buffer(T (&data)[Size]) : buffer(data, Size) { }
+        constexpr buffer(T (&data)[Size]) : buffer(data, Size) { }
 
         /// Wraps a pointer as buffer.
         /// Buffer does not own memory.
@@ -315,15 +326,25 @@ namespace hydra::mem {
         /// Resize the buffer.
         /// Changes buffer size and reallocates memory.
         void resize(const std::size_t size) {
+            if (!m_owner)
+                throw std::runtime_error("Cannot resize non-owned buffer");
+
             buffer temp(size);
             if (m_base)
                 std::memcpy(temp.m_base, m_base, size);
+
             *this = std::move(temp);
+        }
+
+        /// Change the buffer size without allocating memory.
+        /// This function can be dangerous.
+        void override_size(const std::size_t size) {
+            m_size = size;
         }
 
         /// Scan buffer for pattern using mask.
         /// Returns generator of matching addresses.
-        hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char* mask, std::size_t size = 0) const {
+        hy::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char* mask, std::size_t size = 0) const {
             if (!size) size = strlen(mask);
             return detail::scan_aob(m_base, end(), pattern, mask, size);
         }
@@ -331,10 +352,15 @@ namespace hydra::mem {
         /// Scan buffer for pattern using mask array.
         /// Returns generator of matching addresses.
         template <int Size>
-        constexpr hydra::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char (&mask)[Size]) const {
+        constexpr hy::detail::generator<addr> scan_aob(const std::uint8_t* pattern, const char (&mask)[Size]) const {
             return detail::scan_aob(m_base, end(), pattern, mask, Size);
         }
     };
+
+    /* Memory Helpers */
+
+    template <class Ret = addr, class T> requires detail::AddressCastable<Ret> && (!detail::AddressPrimitive<Ret>) && detail::PointerType<T>
+    Ret ref(T* value) { return static_cast<addr>(value); }
 
     /* OS Constants */
 
@@ -344,9 +370,9 @@ namespace hydra::mem {
 
     /// User-mode address bounds buffer.
     /// Range: 0x000000000000 - 0x7FFFFFFFFFFF.
-    constexpr auto um_bounds = buffer({ 0x000000000000ull, 0x7FFFFFFFFFFFull });
+    static auto um_bounds = buffer({ 0x000000000000ull, 0x7FFFFFFFFFFFull });
 
     /// Kernel-mode address bounds buffer.
     /// Range: 0x800000000000 - 0xFFFFFFFFFFFF.
-    constexpr auto km_bounds = buffer({ 0x800000000000ull, 0xFFFFFFFFFFFFull });
+    static auto km_bounds = buffer({ 0x800000000000ull, 0xFFFFFFFFFFFFull });
 }

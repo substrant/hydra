@@ -1,8 +1,8 @@
 #pragma once
 
-#include "hydra/detail/pch.hpp"
+#include "detail/pch.hpp"
 
-namespace hydra::io {
+namespace hy::io {
     /// I/O specific exception class for stream operations.
     /// Derived from std::runtime_error for I/O related errors.
     class error final : public std::runtime_error {

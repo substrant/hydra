@@ -1,20 +1,21 @@
-#include <queue>
-#include <iostream>
-#include <chrono>
+#include "detail/pch.hpp"
 
-#include "hydra/user/process.hpp"
-#include "hydra/user/toolhelp.hpp"
+#include <psapi.h>
 
-namespace hydra {
+#include <deque>
+#include <unordered_set>
+#include <ranges>
+
+#include "user/toolhelp.hpp"
+#include "user/process.hpp"
+
+namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;
 
-    // This should not change
-    const std::atomic<bool> memdump_ctx::dummy_flag = true;
-
     void process::init() {
-        if (!_handle.is_valid())
+        if (!m_handle.is_valid())
             throw std::runtime_error("Invalid handle provided");
-        _self = shared_from_this();
+        m_this = shared_from_this();
     }
 
     bool process::scan_linked_modules() {
@@ -25,7 +26,7 @@ namespace hydra {
         MODULEINFO module_info;
 
         // Enumerate the modules into modules_raw
-        if (!EnumProcessModulesEx(_handle, modules_raw.get(), sizeof(HMODULE) * max_modules, &modules_bytes, LIST_MODULES_ALL))
+        if (!EnumProcessModulesEx(m_handle, modules_raw.get(), sizeof(HMODULE) * max_modules, &modules_bytes, LIST_MODULES_ALL))
             return false;
 
         const auto module_count = modules_bytes / sizeof(HMODULE);
@@ -37,36 +38,36 @@ namespace hydra {
         DWORD name_len;
 
         // Preallocate modules
-        _modules.reserve(module_count);
+        m_modules.reserve(module_count);
 
         // Probe for module info
         for (auto i = 0u; i < module_count; i++) {
             const auto module_handle = modules_raw[i];
 
             // Get the module's information
-            if (!GetModuleInformation(_handle, module_handle, &module_info, sizeof(module_info)))
+            if (!GetModuleInformation(m_handle, module_handle, &module_info, sizeof(module_info)))
                 continue;
 
             // Get the path of the module
-            if ((path_len = GetModuleFileNameExA(_handle, module_handle, path_buf, sizeof(path_buf))) == 0)
+            if ((path_len = GetModuleFileNameExA(m_handle, module_handle, path_buf, sizeof(path_buf))) == 0)
                 continue;
 
             // Get the module name only (strip path)
-            if ((name_len = GetModuleBaseNameA(_handle, module_handle, name_buf, sizeof(name_buf))) == 0)
+            if ((name_len = GetModuleBaseNameA(m_handle, module_handle, name_buf, sizeof(name_buf))) == 0)
                 continue;
 
             // Prepare information
             const auto path = std::string(path_buf, path_len);
             const auto name = std::string(name_buf, name_len);
             const auto base = reinterpret_cast<std::uintptr_t>(module_info.lpBaseOfDll);
-            const auto ptr = remote_module::from_header(_self, base, name, path);
+            const auto ptr = remote_module::from_header(m_this, base, name, path);
 
             // Push module to list and dict
-            _modules_list.push_back(ptr);
-            _modules.insert(std::make_pair(base, ptr));
+            m_module_list.push_back(ptr);
+            m_modules.insert(std::make_pair(base, ptr));
         }
 
-        return _modules_list.size() > 0;
+        return !m_module_list.empty();
     }
 
     std::shared_ptr<process> process::from_handle(const HANDLE handle) {
@@ -82,7 +83,7 @@ namespace hydra {
     }
 
     std::shared_ptr<process> process::from_window(const std::string_view name) {
-        const auto proc_window = FindWindowA(nullptr, name.data());
+        const auto proc_window = FindWindowA(nullptr, name.data()); // NOLINT(bugprone-suspicious-stringview-data-usage) The same bug would exist in C.
         if (proc_window == nullptr)
             return nullptr;
 
@@ -95,7 +96,7 @@ namespace hydra {
     }
 
     std::shared_ptr<process> process::from_module(const std::string_view name) {
-        for (const auto& entry : toolhelp::get_processes()) {
+        for (const auto entry : toolhelp::get_processes()) {
             if (entry.szExeFile == name)
                 return from_id(entry.th32ProcessID);
         }
@@ -103,23 +104,23 @@ namespace hydra {
     }
 
     bool process::is_valid() const {
-        return _handle.is_valid();
+        return m_handle.is_valid();
     }
 
     process::operator HANDLE() const {
-        return _handle;
+        return m_handle;
     }
 
     process::operator DWORD() const {
-        return _handle.is_valid() ? GetProcessId(_handle) : -1;
+        return m_handle.is_valid() ? GetProcessId(m_handle) : -1;
     }
 
     bool process::kill(const LONG exit_code, NTSTATUS* p_status) {
         NTSTATUS dummy_status;
         if (!p_status) p_status = &dummy_status;
 
-        *p_status = NtTerminateProcess(_handle, exit_code);
-        _handle = nullptr;
+        *p_status = NtTerminateProcess(m_handle, exit_code);
+        m_handle = nullptr;
 
         return NT_SUCCESS(*p_status);
     }
@@ -140,10 +141,10 @@ namespace hydra {
     }
 
     detail::generator<std::shared_ptr<remote_module>> process::linked_modules() {
-        if (_modules.empty() && !scan_linked_modules())
+        if (m_modules.empty() && !scan_linked_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
-        for (auto&& v : _modules | std::views::values)
+        for (auto&& v : m_modules | std::views::values)
             co_yield v;
     }
 
@@ -151,13 +152,13 @@ namespace hydra {
         std::unordered_set<void*> linked_bases;
 
         // Scan for linked modules
-        if (_modules.empty() && !scan_linked_modules())
+        if (m_modules.empty() && !scan_linked_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
         // Allocate space and fill bases
-        linked_bases.reserve(_modules.size());
-        for (auto&& v : _modules | std::views::values)
-            linked_bases.insert(v->remote_buffer().data());
+        linked_bases.reserve(m_modules.size());
+        for (auto&& v : m_modules | std::views::values)
+            linked_bases.insert(v->remote_buffer().base());
 
         for (const auto mbi : mm_pages(mem::um_bounds)) {
             // Is this memory accessible?
@@ -168,32 +169,32 @@ namespace hydra {
             auto buffer = mem::buffer::create(mem::page_size);
             if (!mm_read(mbi.BaseAddress, buffer)) continue;
 
-            // If not adr PE or if bound to PEB, skip
-            if (!pe_image::verify_header(buffer) || linked_bases.contains(mbi.BaseAddress))
+            // If bound to PEB, skip
+            if (!linked_bases.contains(mbi.BaseAddress))
                 continue;
 
             // This is an unlinked module
-            co_yield remote_module::from_header(_self, mbi.BaseAddress, "unknown");
+            co_yield remote_module::from_header(m_this, mbi.BaseAddress, "unknown");
         }
     }
 
     std::shared_ptr<remote_module> process::module(const std::optional<std::string>& name) {
         // Scan for linked modules
-        if (_modules.empty() && !scan_linked_modules())
+        if (m_modules.empty() && !scan_linked_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
         if (name == std::nullopt)
-            return _modules_list[0]; // first always
+            return m_module_list[0]; // first always
 
         // Find our module
-        for (const auto& v : _modules_list)
+        for (const auto& v : m_module_list)
             if (v->file_name() == name) return v;
 
         return nullptr;
     }
 
     std::shared_ptr<window> process::main_window() const {
-        const HWND handle = window::enumerate(window_cond::owner, *this);
+        const HWND handle = window::find(window::match_owner, *this);
         return handle != nullptr ? std::make_shared<window>(handle) : nullptr;
     }
 
@@ -202,19 +203,14 @@ namespace hydra {
         if (size == 0 || size > buffer.size()) return false;
 
         SIZE_T written;
-        if (!ReadProcessMemory(_handle, base, buffer.data(), size, &written))
+        if (!ReadProcessMemory(m_handle, base, buffer.base(), size, &written))
             return 0;
 
         return written;
     }
 
-    std::size_t process::mm_read(const mem::addr base, const mem::addr buffer, const std::size_t size) const {
-        SIZE_T written;
-        return ReadProcessMemory(_handle, base, buffer, size, &written) ? written : 0;
-    }
-
     bool process::mm_query(const mem::addr base, MEMORY_BASIC_INFORMATION& mbi) const {
-        return VirtualQueryEx(_handle, base, &mbi, sizeof(mbi));
+        return VirtualQueryEx(m_handle, base, &mbi, sizeof(mbi));
     }
 
     detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const mem::buffer& buffer) const {
@@ -229,22 +225,22 @@ namespace hydra {
 
     DWORD process::mm_protect(const mem::addr base, const std::size_t size, const DWORD new_prot) const {
         DWORD old_prot;
-        return VirtualProtectEx(_handle, base, size, new_prot, &old_prot) ? new_prot : 0;
+        return VirtualProtectEx(m_handle, base, size, new_prot, &old_prot) ? new_prot : 0;
     }
 
     // Returns amount of pages read
-    std::size_t process::mm_dump(memdump_ctx params) const {
+    std::size_t process::mm_dump(const mem::addr base, const mem::buffer& buffer, dump_context* ctx) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::deque<std::uintptr_t> page_queue;
         std::size_t pages_read = 0;
 
         // Fill buffer range with sentinel byte
-        std::memset(params.dest, params.sentinel, params.size);
+        std::memset(buffer.base(), ctx->sentinel, buffer.size());
 
         // Helper function to read page and track progress
         const auto read_page = [&](const std::uintptr_t va) -> bool {
-            const auto offset = va - params.base.i;
-            const auto success = mm_read(va, params.dest + offset, mem::page_size);
+            const auto offset = va - base.i;
+            const auto success = mm_read(va, buffer.base() + offset, mem::page_size);
 
             if (success) pages_read++;
             return success;
@@ -254,19 +250,19 @@ namespace hydra {
         auto last_tick = hw_clock::now();
         const auto signal_report = [&] -> void {
             const auto current_tick = hw_clock::now();
-            if (current_tick - last_tick < params._report_interval)
+            if (current_tick - last_tick < std::chrono::milliseconds(100))
                 return;
 
-            if (params._report_handler.has_value())
-                (*params._report_handler)(params, pages_read);
-
+            if (ctx->callback) (*ctx->callback)(ctx, pages_read);
             last_tick = current_tick;
         };
+
+        const auto end_address = base + buffer.size();
 
         // Phase 1:
         //   Go through each page in the region and attempt to read
         //   If we can't read the page, queue it for the 2nd phase
-        for (std::uintptr_t page_base = params.base; page_base < params.end_addr(); page_base += mem::page_size) {
+        for (std::uintptr_t page_base = base; page_base < end_address; page_base += mem::page_size) {
             if (!mm_query(page_base, mbi)) {
                 // Skip page
                 continue;
@@ -280,7 +276,7 @@ namespace hydra {
         // Phase 2:
         //   Loop queue until all pages are able to be read or adr
         //   cancellation is requested
-        while (!page_queue.empty() && !params.stop_requested()) {
+        while (!page_queue.empty() && !ctx->stop) {
             signal_report();
 
             auto page = page_queue.front();
@@ -293,12 +289,12 @@ namespace hydra {
         }
 
         // Revert stop flag if set
-        params.reset_flag();
+        ctx->stop = false;
 
         return pages_read;
     }
 
-    std::vector<mem::addr> process::mm_scan_heap(const std::uint8_t* pattern, const char* mask) const {
+    std::vector<mem::addr> process::scan_heap(const std::uint8_t* pattern, const char* mask) const {
         std::vector<mem::addr> results;
         MEMORY_BASIC_INFORMATION mbi;
         auto time = std::chrono::system_clock::now();
@@ -310,10 +306,8 @@ namespace hydra {
             }
 
             const auto elapsed = std::chrono::system_clock::now() - time;
-            if (elapsed > std::chrono::milliseconds(1000)) {
+            if (elapsed > std::chrono::milliseconds(1000))
                 time = std::chrono::system_clock::now();
-                std::cout << "\r[+] Scanning region " << reinterpret_cast<void*>(addr) << "...";
-            }
 
             const bool heap_like =
                 mbi.State == MEM_COMMIT &&
@@ -325,10 +319,10 @@ namespace hydra {
                 continue;
             }
 
-            auto dump = mem::buffer::create(mbi.RegionSize);
+            const auto dump = mem::buffer::create(mbi.RegionSize);
             if (mm_read(mbi.BaseAddress, dump)) {
-                for (const auto& match : dump.scan_aob(pattern, mask)) {
-                    const auto offset = match - dump.data();
+                for (const auto match : dump.scan_aob(pattern, mask)) {
+                    const auto offset = match - dump.base();
                     results.emplace_back(mem::addr(mbi.BaseAddress) + offset);
                 }
             }
@@ -336,13 +330,11 @@ namespace hydra {
             addr = reinterpret_cast<std::uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
         }
 
-        std::cout << "\n";
-
         return results;
     }
 
     mem::addr process::mm_alloc(const mem::addr base, const std::size_t size, const DWORD flags, const DWORD protect) const {
-        return VirtualAllocEx(_handle, base, size, flags, protect);
+        return VirtualAllocEx(m_handle, base, size, flags, protect);
     }
 
     mem::addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
@@ -358,7 +350,7 @@ namespace hydra {
         if (size > buffer.size()) return 0;
 
         SIZE_T written;
-        if (!WriteProcessMemory(_handle, base, buffer.data(), size, &written))
+        if (!WriteProcessMemory(m_handle, base, buffer.base(), size, &written))
             return 0;
 
         return written;
@@ -369,7 +361,7 @@ namespace hydra {
         if (base == nullptr) return nullptr;
 
         if (!mm_write(base, source)) {
-            mm_free(base);
+            (void)mm_free(base);
             return nullptr;
         }
 
@@ -377,7 +369,7 @@ namespace hydra {
     }
 
     bool process::mm_free(const mem::addr base, const DWORD flags) const {
-        return VirtualFreeEx(_handle, base, 0, flags);
+        return VirtualFreeEx(m_handle, base, 0, flags);
     }
 
     map_status process::pe_mmap(pe_image& pe, mapping_info* info_out) const {
@@ -386,12 +378,12 @@ namespace hydra {
         info_out->header_size = pe.size(pe_size::header);
         info_out->base = mm_alloc(info_out->size, PAGE_EXECUTE_READWRITE);
 
-        if (info_out->base == NULL) {
-            std::cout << "[-] Failed to allocate memory in target process.\n";
+        if (info_out->base == nullptr) {
+            //std::cout << "[-] Failed to allocate memory in target process.\n";
             return map_status::failed_allocation;
         }
 
-        std::cout << "[+] Base Address: 0x" << std::hex << info_out->base << "\n";
+        //std::cout << "[+] Base Address: 0x" << std::hex << info_out->base << "\n";
 
         // Copy header information to the target process
         if (!mm_write(info_out->base, pe.m_buffer, info_out->header_size))
@@ -408,12 +400,12 @@ namespace hydra {
             const auto dest_address = reinterpret_cast<std::uintptr_t>(info_out->base) + section->raw()->VirtualAddress;
 
             // Write the section data to the target process
-            if (!mm_write(dest_address, pe.m_buffer + section->raw()->PointerToRawData, section_size)) {
-                std::cout << "[-] Failed to write section to target process.\n";
+            if (!mm_write(dest_address, pe.m_buffer.base() + section->raw()->PointerToRawData, section_size)) {
+                //std::cout << "[-] Failed to write section to target process.\n";
                 return map_status::failed_write;
             }
 
-            std::cout << "[+] Mapped " << section->name() << " => 0x" << std::hex << dest_address << " (" << std::dec << section_size << " bytes)\n";
+           // std::cout << "[+] Mapped " << section->name() << " => 0x" << std::hex << dest_address << " (" << std::dec << section_size << " bytes)\n";
         }
 
         return map_status::success;

@@ -1,10 +1,10 @@
-#include "hydra/runtime/disasm.hpp"
+#include "disasm.hpp"
 
 namespace {
-    thread_local hydra::rt::disasm_instr dummy_instr;
+    thread_local hy::disasm_instr dummy_instr;
 }
 
-namespace hydra::rt {
+namespace hy {
     bool disasm::read(disasm_instr* pc, const std::size_t size) {
         if (!pc) pc = &dummy_instr;
         m_status = ZydisDecoderDecodeFull(&m_decoder, pos(), size, &pc->data, &pc->args[0]);
@@ -36,7 +36,7 @@ namespace hydra::rt {
 
         while ((dir == direction::forwards && current < end) || (dir == direction::backwards && current > end)) {
             if (mem::detail::match_aob(current, pattern, mask, pattern_size)) {
-                m_off = current - m_buffer.data(); // update position only on match
+                m_off = current - m_buffer.base(); // update position only on match
                 return true;
             }
 

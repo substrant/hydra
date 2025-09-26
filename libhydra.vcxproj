@@ -54,27 +54,31 @@
     <ClInclude Include="include\hydra\detail\enable_shared.hpp" />
     <ClInclude Include="include\hydra\detail\generator.hpp" />
     <ClInclude Include="include\hydra\detail\noncopyable.hpp" />
+    <ClInclude Include="include\hydra\detail\pch.hpp" />
+    <ClInclude Include="include\hydra\io\error.hpp" />
     <ClInclude Include="include\hydra\log\progress.hpp" />
     <ClInclude Include="include\hydra\core\generator.hpp" />
     <ClInclude Include="include\hydra\core\memory.hpp" />
     <ClInclude Include="include\hydra\core\module.hpp" />
-    <ClInclude Include="include\hydra\runtime\disasm.hpp" />
-    <ClInclude Include="include\hydra\user\mapping.h" />
+    <ClInclude Include="include\hydra\disasm.hpp" />
     <ClInclude Include="include\hydra\user\process.hpp" />
     <ClInclude Include="include\hydra\user\thread.hpp" />
     <ClInclude Include="include\hydra\user\toolhelp.hpp" />
     <ClInclude Include="include\hydra\user\window.hpp" />
-    <ClInclude Include="include\hydra\util\handle.hpp" />
-    <ClInclude Include="include\hydra\util\memory.hpp" />
-    <ClInclude Include="include\hydra\util\module.hpp" />
+    <ClInclude Include="include\hydra\handle.hpp" />
+    <ClInclude Include="include\hydra\memory.hpp" />
+    <ClInclude Include="include\hydra\module.hpp" />
+    <ClInclude Include="include\hydra\io\binary.hpp" />
+    <ClInclude Include="include\hydra\io\stream.hpp" />
+    <ClInclude Include="include\hydra\io\memory.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\runtime\disasm.cpp" />
+    <ClCompile Include="src\disasm.cpp" />
     <ClCompile Include="src\user\process.cpp" />
     <ClCompile Include="src\user\thread.cpp" />
     <ClCompile Include="src\user\toolhelp.cpp" />
     <ClCompile Include="src\user\window.cpp" />
-    <ClCompile Include="src\util\module.cpp" />
+    <ClCompile Include="src\module.cpp" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -106,7 +110,7 @@
     <IntDir>$(ProjectDir)build\obj\$(ProjectName)\$(Configuration)\</IntDir>
     <TargetName>libhydra</TargetName>
     <ExternalIncludePath>$(ProjectDir)dependencies\zydis\include;$(ProjectDir)dependencies\zydis\dependencies\zycore\include;$(ProjectDir)dependencies\phnt\include;$(ExternalIncludePath)</ExternalIncludePath>
-    <IncludePath>$(ProjectDir)include;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
+    <IncludePath>$(ProjectDir)include\hydra;$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>

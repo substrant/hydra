@@ -2,15 +2,15 @@
 
 #include <memory>
 
-#include "hydra/util/handle.hpp"
-#include "hydra/util/memory.hpp"
-#include "hydra/detail/noncopyable.hpp"
-#include "hydra/user/toolhelp.hpp"
+#include "handle.hpp"
+#include "memory.hpp"
+#include "detail/noncopyable.hpp"
+#include "user/toolhelp.hpp"
 
 #include <phnt_ntdef.h>
 #include <ntpsapi.h>
 
-namespace hydra {
+namespace hy {
     class thread : public detail::noncopyable, public std::enable_shared_from_this<thread> {
         std::shared_ptr<thread> _self = nullptr;
         unique_handle<CloseHandle> _handle{};

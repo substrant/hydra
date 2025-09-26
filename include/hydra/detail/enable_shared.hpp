@@ -2,7 +2,7 @@
 
 #include <memory>
 
-namespace hydra::detail {
+namespace hy::detail {
     template <class Base, class Derived>
     class enable_shared : public Base {
     public:

@@ -2,9 +2,9 @@
 
 #include <phnt_windows.h>
 
-#include "hydra/detail/noncopyable.hpp"
+#include "detail/noncopyable.hpp"
 
-namespace hydra {
+namespace hy {
     using handle_closer = BOOL(WINAPI*)(HANDLE);
 
     template <handle_closer CloseFn>

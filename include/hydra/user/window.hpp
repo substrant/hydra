@@ -1,47 +1,33 @@
 #pragma once
 
-#include <phnt_windows.h>
-#include <phnt.h>
+#include "detail/pch.hpp"
 
-#include <memory>
+namespace hy {
+    namespace detail {
+        struct find_window_context {
+            DWORD proc_id = 0;
+            HWND hwnd = nullptr;
+        };
+    }
 
-namespace hydra::_internal {
-    static thread_local HWND _window_enum_result;
-}
-
-namespace hydra::window_cond {
-    BOOL CALLBACK owner(HWND hwnd, LPARAM param);
-}
-
-namespace hydra {
     class window {
-        HWND _handle;
-
-        static HWND enumerate(WNDENUMPROC proc, DWORD proc_id);
+        HWND m_handle;
 
     public:
+        static HWND find(WNDENUMPROC proc, DWORD proc_id);
+
+        static BOOL CALLBACK match_owner(const HWND hwnd, const LPARAM param);
+
         explicit window(const HWND handle) {
-            _handle = handle;
+            m_handle = handle;
         }
 
         void show() const {
-            ShowWindow(_handle, SW_SHOW);
+            ShowWindow(m_handle, SW_SHOW);
         }
 
         void hide() const {
-            ShowWindow(_handle, SW_HIDE);
-        }
-
-        friend class process;
-    };
-
-    struct window_enum_ctx {
-        std::shared_ptr<process> proc;
-        HANDLE handle;
-
-        explicit window_enum_ctx(const std::shared_ptr<process>& proc) {
-            this->proc = proc;
-            this->handle = nullptr;
+            ShowWindow(m_handle, SW_HIDE);
         }
     };
 }

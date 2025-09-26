@@ -3,7 +3,7 @@
 #include <coroutine>
 #include <optional>
 
-namespace hydra::detail {
+namespace hy::detail {
     template <typename T>
     struct generator {
         struct promise_type {

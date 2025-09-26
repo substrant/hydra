@@ -1,18 +1,19 @@
 #pragma once
 
+#include <functional>
 #include <optional>
 #include <stack>
 
-#include "hydra/util/memory.hpp"
+#include "memory.hpp"
 
 #pragma comment(lib, "Zydis.lib")
 #pragma comment(lib, "Zycore.lib")
 
 extern "C" {
-    #   include "Zydis/Zydis.h"
+#   include "Zydis/Zydis.h"
 }
 
-namespace hydra::rt {
+namespace hy {
     constexpr std::size_t max_instr_len = 0x0F;
 
     template <class T>
@@ -112,7 +113,7 @@ namespace hydra::rt {
         }
 
         mem::addr pos() const {
-            return m_buffer.data() + m_off;
+            return m_buffer.base() + m_off;
         }
 
         std::string format(const disasm_instr* instr);

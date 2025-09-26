@@ -1,14 +1,11 @@
-#include <iostream>
-#include <queue>
-#include <chrono>
+#include "detail/pch.hpp"
 
-#include "hydra/user/process.hpp"
-#include "hydra/util/module.hpp"
-#include "hydra/user/mapping.h"
+#include "user/process.hpp"
+#include "module.hpp"
 
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 
-namespace hydra {
+namespace hy {
     pe_image pe_image::load_file(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file) throw std::runtime_error("Could not open file");
@@ -17,7 +14,7 @@ namespace hydra {
         auto buffer = mem::buffer::create(size);
 
         file.seekg(0);
-        file.read(buffer.data(), size);
+        file.read(buffer.base(), size);
 
         return pe_image{std::move(buffer)};
     }
@@ -27,7 +24,7 @@ namespace hydra {
     }
 
     pe_image pe_image::load_base(const mem::addr base) {
-        pe_image image{mem::buffer::from_base(base, mem::page_size)};
+        pe_image image{ { base, mem::page_size } };
         image.read_header();
         return image;
     }
@@ -85,7 +82,7 @@ namespace hydra {
     }
 
     pe_status pe_image::read_header() {
-        const mem::addr base = m_buffer.data();
+        const mem::addr base = m_buffer.base();
 
         // Pull and validate the DOS header
         if (m_buffer.size() < sizeof(IMAGE_DOS_HEADER))
@@ -223,7 +220,7 @@ namespace hydra {
             return nullptr; // No import directory
         }
 
-        const mem::addr base_addr = m_buffer.data();
+        const mem::addr base_addr = m_buffer.base();
         const auto import_descriptor = base_addr + import_dir.VirtualAddress;
         
         // Walk through each imported DLL
@@ -271,8 +268,9 @@ namespace hydra {
         return nullptr;
     }
 
-    bool remote_module::dump_image(std::atomic<bool>& stop, const double clear_ratio, const int wait_ms) {
-        auto remote_base = remote_buffer().data();
+    bool remote_module::dump_image(const mem::buffer& buffer, dump_context* ctx) {
+        const auto remote_base = remote_buffer().base();
+        const auto total_pages = (size(pe_size::mapped) + mem::page_size - 1) / mem::page_size;
 
         // Grow to full size
         m_buffer.resize(size(pe_size::file));
@@ -313,42 +311,34 @@ namespace hydra {
 
             // If this is a code section (like .text), we'll try to dump it page-by-page
             if (section->Characteristics & IMAGE_SCN_CNT_CODE) {
-                memdump_ctx ctx(virt_addr,mem::buffer::from_base(file_addr, min_size));
-                ctx.sentinel = 0xCC;
-                ctx.stop_flag = &stop;
-
                 // timestamp
                 const auto time_now = std::chrono::system_clock::now();
 
-                const std::size_t total_pages = ctx.page_count();
-                //cui::progress_bar progress(total_pages, "Page");
-
                 // Set up a feedback handler
-                ctx.set_handler([&](memdump_ctx& _, const std::size_t pages_read) -> void {
+                ctx->callback = [&](const dump_context* _, const std::size_t pages_read) -> void {
                     const auto ratio = static_cast<double>(pages_read) / static_cast<double>(total_pages);
 
                     // ratio to stop scanning at
-                    if (ratio > clear_ratio)
-                        stop = true;
+                    if (ratio > ctx->clear_ratio)
+                        ctx->stop = true;
 
                     // Check if we've been running for too long
                     const auto elapsed = std::chrono::system_clock::now() - time_now;
-                    if (elapsed > std::chrono::milliseconds(wait_ms)) {
-                        std::cout << "\n[!] Dump time for " << section->Name << " exceeded.\n";
-                        stop = true;
-                        return;
+                    if (ctx->clear_time && elapsed > *ctx->clear_time) {
+                        //std::cout << "\n[!] Dump time for " << section->Name << " exceeded.\n";
+                        ctx->stop = true;
                     }
 
                     //progress.update(pages_read);
-                }, std::chrono::milliseconds(100));
+                };
 
                 // Start dump
-                if (!m_proc->mm_dump(ctx)) {
-                    std::cout << "[-] Failed to dump section " << section->Name << "\n";
+                if (!m_proc->mm_dump(virt_addr, buffer + virt_addr, ctx)) {
+                    //std::cout << "[-] Failed to dump section " << section->Name << "\n";
                 }
             }
             else {
-                std::cout << "[-] Skipping section " << section->Name << "\n";
+                //std::cout << "[-] Skipping section " << section->Name << "\n";
             }
         }
 

@@ -47,7 +47,7 @@ $ErrorActionPreference = "Stop"
 
 # Get script directory and project root
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ProjectRoot = Split-Path -Parent $ScriptDir
+$ProjectRoot = $ScriptDir  # Script is in project root, not in a subdirectory
 $BuildDir = Join-Path $ProjectRoot "build"
 
 Write-Host "Building Hydra Library" -ForegroundColor Green

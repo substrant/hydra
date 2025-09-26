@@ -45,14 +45,11 @@ file(GLOB_RECURSE HYDRA_HEADERS
 )
 
 # Create static library
-add_library(libhydra STATIC ${HYDRA_SOURCES} ${HYDRA_HEADERS})
+add_library(libhydra STATIC ${HYDRA_SOURCES})
 
 # Configure basic properties
 set_target_properties(libhydra PROPERTIES
     OUTPUT_NAME "libhydra"
-    CXX_STANDARD 23
-    CXX_STANDARD_REQUIRED ON
-    CXX_EXTENSIONS OFF
 )
 
 # Windows-specific compiler settings
@@ -71,7 +68,9 @@ if(WIN32)
     target_compile_options(libhydra PRIVATE
         /W3                              # Warning level 3
         /permissive-                     # Disable non-conforming code extensions
-        $<$<CXX_COMPILER_ID:MSVC>:/MP>     # Multi-processor compilation (MSVC only)
+        /clang:-Wno-pragma-pack          # Suppress pragma pack warnings because they are useless
+        /clang:-Wno-system-headers       # Suppress warnings in system headers because I didn't fucking write them
+        $<$<CXX_COMPILER_ID:MSVC>:/MP>   # Multi-processor compilation (MSVC only)
 
         # Configuration-specific optimizations
         $<$<CONFIG:Debug>:/Od>             # Debug: Disable optimizations
@@ -84,18 +83,19 @@ if(WIN32)
     )
 endif()
 
-# Public headers that consumers need
 target_include_directories(libhydra PUBLIC
     include
 )
 
-# Private headers (implementation details and dependencies)
 target_include_directories(libhydra PRIVATE
     include/hydra
+)
+
+target_include_directories(libhydra PUBLIC SYSTEM
     dependencies/phnt/include
 )
 
-# Link with Zydis (built by dependencies/CMakeLists.txt)
+# Link with Zydis
 target_link_libraries(libhydra PRIVATE
     Zydis
     Zycore

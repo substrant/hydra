@@ -10,7 +10,7 @@ namespace hy {
     template <handle_closer CloseFn>
     class unique_handle : public detail::noncopyable {
         HANDLE m_handle = nullptr;
-        bool m_owner = nullptr;
+        bool m_owner = false;
 
     public:
         explicit unique_handle(const bool no_dispose = false) : m_owner(!no_dispose) { }
@@ -38,7 +38,7 @@ namespace hy {
         bool close() {
             if (!is_valid())
                 return false;
-            
+
             const bool success = m_owner ? CloseFn(m_handle) : true;
             if (success) m_handle = nullptr;
 

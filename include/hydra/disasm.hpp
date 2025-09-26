@@ -2,7 +2,6 @@
 
 #include <functional>
 #include <optional>
-#include <stack>
 
 #include "memory.hpp"
 
@@ -95,7 +94,7 @@ namespace hy {
 
     class disasm {
     public:
-        mem::buffer m_buffer;      
+        mem::buffer m_buffer;
         mem::addr m_rip = nullptr; // Remote base address of buffer
         mem::addr m_off = 0ull;
 
@@ -130,7 +129,7 @@ namespace hy {
 
         template <class... T>
         std::optional<disasm> find(const std::size_t limit, T ...predicates) {
-            const auto master_predicate = code_query::all(predicates);
+            const auto master_predicate = code_query::all(predicates...);
             return find_impl(limit, master_predicate);
         }
     };

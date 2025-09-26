@@ -1,5 +1,6 @@
 #pragma once
 
+// IWYU pragma: begin_keep
 #include <phnt_windows.h>
 #include <phnt.h>
 #include <Psapi.h>
@@ -15,3 +16,4 @@
 #include <ranges>
 #include <string>
 #include <fstream>
+// IWYU pragma: end_keep

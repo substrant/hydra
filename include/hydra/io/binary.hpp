@@ -23,7 +23,7 @@ namespace hy::io {
 
         /// Move constructor for stream_reader.
         /// Transfers stream ownership.
-        binary(binary&& other) noexcept 
+        binary(binary&& other) noexcept
             : m_stream(std::move(other.m_stream)) { }
 
         /// Move assignment for stream_reader.
@@ -45,14 +45,12 @@ namespace hy::io {
         template <mem::detail::PrimitiveObject T, std::size_t Size = sizeof(T)>
         T read_v() {
             std::uint8_t object[Size];
-            const auto n_bytes = read(object, Size);
+            const auto n_bytes = m_stream->read((mem::addr)&object, Size);
 
             if (!n_bytes)       throw error("Read failure in binary interface");
             if (n_bytes < Size) throw error("Partial read in binary interface");
 
-            // ReSharper disable CppCStyleCast fuck you resharper
             return *(T*)(std::uintptr_t)&object;
-            // ReSharper enable CppCStyleCast fuck you resharper
         }
 
         auto read_u8() { return read_v<std::uint8_t>(); }

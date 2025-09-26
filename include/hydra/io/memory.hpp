@@ -124,7 +124,7 @@ namespace hy::mem {
     /// Provides in-memory streaming operations.
     class local_stream final : public detail::stream {
         buffer m_buffer;
-        
+
         explicit local_stream(buffer buffer, const stream_attrs& attrs)
             : stream(attrs), m_buffer(std::move(buffer)) { }
 
@@ -160,7 +160,7 @@ namespace hy::mem {
 
         /// Reads data from stream into buffer.
         /// Returns number of bytes actually read.
-        std::size_t read(buffer& buffer, const std::size_t count) override {
+        std::size_t read(const buffer& buffer, const std::size_t count) override {
             check_disposed();
             if (!buffer || count == 0) return 0;
 
@@ -177,7 +177,7 @@ namespace hy::mem {
 
         /// Writes data from buffer to stream.
         /// Returns number of bytes actually written.
-        std::size_t write(buffer& buffer, const std::size_t count) override {
+        std::size_t write(const buffer& buffer, const std::size_t count) override {
             check_disposed();
 
             if (!m_writable) throw io::error("Stream is not writable");
@@ -240,7 +240,7 @@ namespace hy::mem {
 
         /// Reads data from stream into buffer.
         /// Returns number of bytes actually read.
-        std::size_t read(buffer& buffer, const std::size_t count) override {
+        std::size_t read(const buffer& buffer, const std::size_t count) override {
             check_disposed();
             if (!buffer || count == 0) return 0;
 
@@ -258,7 +258,7 @@ namespace hy::mem {
 
         /// Writes data from buffer to stream.
         /// Returns number of bytes actually written.
-        std::size_t write(buffer& buffer, const std::size_t count) override {
+        std::size_t write(const buffer& buffer, const std::size_t count) override {
             check_disposed();
 
             if (!m_writable) throw io::error("Stream is not writable");
@@ -266,7 +266,7 @@ namespace hy::mem {
 
             const auto bytes_written = m_proc->mm_write(m_base + m_position, buffer, count);
             if (!bytes_written) throw io::error("Failed to write process memory");
-            
+
             m_position += bytes_written;
             m_length = std::max(m_length, m_position);
 
@@ -275,11 +275,11 @@ namespace hy::mem {
 
         /// Dumps the underlying buffer to a local stream.
         /// Returns reference to internal buffer.
-        std::shared_ptr<local_stream> dump(std::optional<dump_context>& ctx) const {
+        std::shared_ptr<local_stream> dump(dump_context* ctx) const {
             check_disposed();
 
             const auto buffer = buffer::create(m_length);
-            (void)m_proc->mm_dump(m_base, buffer, TODO);
+            (void)m_proc->mm_dump(m_base, buffer, ctx);
 
             const auto stream = local_stream::load(buffer, {
                 .m_capacity = m_length,

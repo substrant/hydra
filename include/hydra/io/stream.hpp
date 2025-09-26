@@ -1,12 +1,11 @@
 #pragma once
 
-#include <algorithm>
-#include <stdexcept>
-#include <memory>
-
-#include "memory.hpp"
 #include "detail/noncopyable.hpp"
 #include "io/error.hpp"
+
+namespace hy::mem {
+    class buffer;
+}
 
 namespace hy::io {
     /// Represents the origin position for a stream operation.
@@ -45,7 +44,7 @@ namespace hy::io {
 
         /// Move constructor for stream.
         /// Transfers stream state.
-        stream(stream&& other) noexcept 
+        stream(stream&& other) noexcept
             : m_disposed(std::exchange(other.m_disposed, true))
             , m_self(std::exchange(other.m_self, nullptr)) { }
 
@@ -89,11 +88,11 @@ namespace hy::io {
 
         /// Reads data from stream into buffer.
         /// Returns number of bytes actually read.
-        virtual std::size_t read(mem::buffer& buffer, std::size_t count) = 0;
+        virtual std::size_t read(const mem::buffer& buffer, std::size_t count) = 0;
 
         /// Writes data from buffer to stream.
         /// Returns number of bytes actually written.
-        virtual std::size_t write(mem::buffer& buffer, std::size_t count) = 0;
+        virtual std::size_t write(const mem::buffer& buffer, std::size_t count) = 0;
 
         /// Seeks to specified position in stream.
         /// Returns new position after seek.

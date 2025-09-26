@@ -29,7 +29,10 @@ namespace hy::mem {
         concept AddressPrimitive = AddressLike<T> && !std::same_as<std::remove_cvref_t<T>, addr>;
 
         template <class T>
-        concept AddressArithmeticOperand = AddressLike<T> || std::is_integral_v<T>;
+        concept IntegralLike = std::is_integral_v<std::remove_cvref_t<T>> || std::convertible_to<T, std::uintptr_t>;
+
+        template <class T>
+        concept AddressArithmeticOperand = AddressLike<T> || IntegralLike<T>;
     }
 
 #   pragma pack(push, 1)
@@ -85,7 +88,7 @@ namespace hy::mem {
             else if constexpr (std::same_as<std::remove_cvref_t<T>, std::uintptr_t>)     return value;
             else if constexpr (std::same_as<std::remove_cvref_t<T>, std::nullptr_t>)     return 0;
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<T>>)                return reinterpret_cast<std::uintptr_t>(value);
-            else if constexpr (std::is_integral_v<std::remove_cvref_t<T>>)               return static_cast<std::uintptr_t>(value);
+            else if constexpr (detail::IntegralLike<T>)                                  return static_cast<std::uintptr_t>(value);
             else                                                                         static_assert([]{ return false; }(), "Unsupported source type for address arithmetic");
             return 0;
         }
@@ -98,6 +101,7 @@ namespace hy::mem {
             else if constexpr (std::same_as<std::remove_cvref_t<Rt>, std::uintptr_t>)     return value;
             else if constexpr (std::same_as<std::remove_cvref_t<Rt>, std::nullptr_t>)     return nullptr;
             else if constexpr (std::is_pointer_v<std::remove_cvref_t<Rt>>)                return reinterpret_cast<Rt>(value);
+            else if constexpr (detail::IntegralLike<Rt>)                                  return static_cast<Rt>(value);
             else                                                                          static_assert([]{ return false; }(), "Unsupported return type for address arithmetic");
             return 0;
         }

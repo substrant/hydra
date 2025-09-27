@@ -3,12 +3,14 @@
 #include "user/process.hpp"
 #include "module.hpp"
 
+#include "io/error.hpp"
+
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 
 namespace hy {
     pe_image pe_image::load_file(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) throw std::runtime_error("Could not open file");
+        if (!file) throw io::error("Could not open file");
 
         const auto size = file.tellg();
         auto buffer = mem::buffer::create(size);
@@ -64,18 +66,15 @@ namespace hy {
     }
 
     std::shared_ptr<remote_module> remote_module::from_remote(const std::shared_ptr<process>& proc,const mem::addr base) {
-        size_t path_len;
-        size_t name_len;
-
         char path[MAX_PATH + 1];
         char name[MAX_PATH + 1];
 
         // Get the path of the module
-        path_len = GetModuleFileNameExA(*proc, base, path, sizeof(path));
+        std::size_t path_len = GetModuleFileNameExA(*proc, base, path, sizeof(path));
         path[path_len] = '\0';
 
         // Get the module name only (strip path)
-        name_len = GetModuleBaseNameA(*proc, base, name, sizeof(name));
+        std::size_t name_len = GetModuleBaseNameA(*proc, base, name, sizeof(name));
         name[name_len] = '\0';
 
         return from_header(proc, base, name, path);
@@ -138,41 +137,6 @@ namespace hy {
         return pe_status::success;
     }
 
-    /*bool static_pe::dump_remote(const std::shared_ptr<process> proc, memory::addr remote_base) {
-        // Get full size of image and resize buffer
-        const auto full_size = get_size(pe_size::mapped);
-        _buffer->resize(full_size);
-
-        // Read full module
-        //return proc->mm_read(_remote_base, *_buffer);
-
-        const auto image_base = get_base().byte_ptr;
-        bool success = true;
-
-        // Walk pages in memory and dump
-        for (const auto& page : proc->mm_pages(memory::range::size(remote_base, full_size))) {
-            if (page.State != MEM_COMMIT)
-                continue;
-
-            const auto page_base = reinterpret_cast<uint8_t*>(page.BaseAddress);
-            const auto get_offset = page_base - remote_base.byte_ptr;
-
-            // Bounds check: skip if outside image
-            if (get_offset >= full_size)
-                continue;
-
-            const auto to_read = std::min<std::size_t>(page.RegionSize, full_size - get_offset);
-
-            SIZE_T bytes_read = 0;
-            if (!ReadProcessMemory(proc->get_handle(), page_base, image_base + get_offset, to_read, &bytes_read)) {
-                std::memset(image_base + get_offset, 0x00, to_read); // Fill unreadable region with 0s
-                success = false;
-            }
-        }
-
-        return success;
-    }*/
-
     std::string pe_image::file_type() const {
         if (m_nt_headers.FileHeader.Characteristics & IMAGE_FILE_DLL)
             return "dll";
@@ -224,43 +188,23 @@ namespace hy {
         const auto import_descriptor = base_addr + import_dir.VirtualAddress;
         
         // Walk through each imported DLL
-        for (auto descriptor = static_cast<PIMAGE_IMPORT_DESCRIPTOR>(import_descriptor);
-             descriptor->Name != 0;
-             descriptor++) {
-            
-            // Get the name of the DLL
-            const char* dll_name = static_cast<const char*>(base_addr + descriptor->Name);
-            
-            // Look at the thunk data to find the imported functions
-            auto thunk = static_cast<PIMAGE_THUNK_DATA>(base_addr + descriptor->FirstThunk);
+        for (auto descriptor = static_cast<PIMAGE_IMPORT_DESCRIPTOR>(import_descriptor); descriptor->Name != 0; descriptor++) {
+            const auto thunk = static_cast<PIMAGE_THUNK_DATA>(base_addr + descriptor->FirstThunk);
             auto orig_thunk = static_cast<PIMAGE_THUNK_DATA>(base_addr + descriptor->OriginalFirstThunk);
             
-            // If OriginalFirstThunk is null, use FirstThunk instead
-            if (descriptor->OriginalFirstThunk == 0) {
-                orig_thunk = thunk;
-            }
+            // Default original thunk to the first think in the list
+            if (descriptor->OriginalFirstThunk == 0) orig_thunk = thunk;
             
             // Walk through all imported functions for this DLL
             for (SIZE_T i = 0; orig_thunk[i].u1.AddressOfData != 0; i++) {
-                std::string_view current_symbol;
-                
-                // Check if this is an ordinal import
-                if (IMAGE_SNAP_BY_ORDINAL(orig_thunk[i].u1.Ordinal)) {
-                    // Can't compare ordinals with string symbols
-                    continue;
-                } else {
-                    // Get the import by name
-                    auto import_by_name = static_cast<PIMAGE_IMPORT_BY_NAME>(
-                        base_addr + orig_thunk[i].u1.AddressOfData
-                    );
-                    current_symbol = reinterpret_cast<const char*>(import_by_name->Name);
-                    
-                    // Check if this is the symbol we're looking for
-                    if (current_symbol == symbol) {
-                        // Return the address of the import
-                        return mem::addr(&thunk[i].u1.Function);
-                    }
-                }
+                // Check if this is an ordinal import because we can't compare ordinals with string symbols
+                if (IMAGE_SNAP_BY_ORDINAL(orig_thunk[i].u1.Ordinal)) continue;
+
+                const auto import_by_name = static_cast<PIMAGE_IMPORT_BY_NAME>(base_addr + orig_thunk[i].u1.AddressOfData);
+
+                // Check if this is the symbol we're looking for
+                const std::string_view current_symbol = import_by_name->Name;
+                if (current_symbol == symbol) return { &thunk[i].u1.Function };
             }
         }
         
@@ -317,10 +261,7 @@ namespace hy {
                 // Set up a feedback handler
                 ctx->callback = [&](const dump_context* _, const std::size_t pages_read) -> void {
                     const auto ratio = static_cast<double>(pages_read) / static_cast<double>(total_pages);
-
-                    // ratio to stop scanning at
-                    if (ratio > ctx->clear_ratio)
-                        ctx->stop = true;
+                    if (ratio > ctx->clear_ratio) ctx->stop = true;
 
                     // Check if we've been running for too long
                     const auto elapsed = std::chrono::system_clock::now() - time_now;

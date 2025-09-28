@@ -1,5 +1,4 @@
 # Project files related to our build system
-dependencies/
 build/
 
 # Visual Studio files

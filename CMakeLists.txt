@@ -1,5 +1,4 @@
-﻿cmake_minimum_required(VERSION 3.20)
-
+﻿cmake_minimum_required(VERSION 4.0)
 project(Substrant.Hydra VERSION 1.0.0 LANGUAGES CXX C)
 
 # Validate platform
@@ -23,71 +22,47 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT CMAKE_CXX_SIMULATE_ID STREQUAL
     )
 endif()
 
+# Add source files
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.c")
+file(GLOB_RECURSE HEADERS "include/*.hpp" "include/*.h")
+
 # Build dependencies first
-add_subdirectory(dependencies)
-
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-set(CMAKE_C_STANDARD 17)
-set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
-
-file(GLOB_RECURSE HYDRA_SOURCES
-    "src/*.cpp"
-    "src/*.c"
-)
-
-file(GLOB_RECURSE HYDRA_HEADERS
-    "include/*.hpp"
-    "include/*.h"
-)
+add_subdirectory(dependencies EXCLUDE_FROM_ALL)
 
 # Create static library
-add_library(libhydra STATIC ${HYDRA_SOURCES} ${HYDRA_HEADERS})
-
-# Configure basic properties
-set_target_properties(libhydra PROPERTIES
+add_library(Substrant.Hydra STATIC ${SOURCES} ${HEADERS})
+set_target_properties(Substrant.Hydra PROPERTIES
     OUTPUT_NAME "libhydra"
-)
-
-target_compile_definitions(libhydra PRIVATE
-    WIN32_LEAN_AND_MEAN                # Exclude rarely used Windows headers
-    _MBCS                              # Use multi-byte character set (not Unicode)
-    ZYDIS_STATIC_BUILD                 # Link Zydis statically
-    $<$<CONFIG:Debug>:_DEBUG>          # Define _DEBUG macro only in Debug builds
-    $<$<CONFIG:Release>:NDEBUG>        # Define NDEBUG macro only in Release builds
-)
-
-target_compile_options(libhydra PRIVATE
-    /W3                              # Warning level 3
-    /permissive-                     # Disable non-conforming code extensions
-    /clang:-Wno-pragma-pack          # Suppress pragma pack warnings because they are useless
-    /clang:-Wno-system-headers       # Suppress warnings in system headers because we didn't fucking write them
-    $<$<CXX_COMPILER_ID:MSVC>:/MP>   # Multi-processor compilation (MSVC only)
-
-    # Configuration-specific optimizations
-    $<$<CONFIG:Debug>:/Od>             # Debug: Disable optimizations
-    $<$<CONFIG:Release>:/O2>           # Release: Optimize for speed
-)
-
-set_target_properties(libhydra PROPERTIES
+    CXX_STANDARD 23
+    CXX_STANDARD_REQUIRED YES
+    CXX_EXTENSIONS NO
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
 )
 
-target_include_directories(libhydra PUBLIC SYSTEM
-    dependencies/phnt/include
+target_compile_definitions(Substrant.Hydra PRIVATE
+    WIN32_LEAN_AND_MEAN              # Exclude rarely used Windows headers
+    _MBCS                            # Use multi-byte character set
+    ZYDIS_STATIC_BUILD               # Link Zydis statically
+    $<$<CONFIG:Debug>:_DEBUG>        # Define _DEBUG macro in Debug builds
+    $<$<CONFIG:Release>:NDEBUG>      # Define NDEBUG macro in Release builds
 )
 
-target_include_directories(libhydra PUBLIC
-    include
+target_compile_options(Substrant.Hydra PRIVATE
+    /W3                              # Warning level 3
+    /permissive-                     # Disable non-conforming code extensions
+    /clang:-Wno-pragma-pack          # Suppress pragma pack warnings
+    /clang:-Wno-system-headers       # Suppress warnings in system headers
+    $<$<CXX_COMPILER_ID:MSVC>:/MP>   # Multi-processor compilation
+    $<$<CONFIG:Debug>:/Od>           # Debug: Disable optimizations
+    $<$<CONFIG:Release>:/O2>         # Release: Optimize for speed
 )
 
-target_include_directories(libhydra PRIVATE
-    include/hydra
+target_include_directories(Substrant.Hydra
+    PUBLIC include
+    PUBLIC SYSTEM dependencies/phnt/include
 )
 
-target_link_libraries(libhydra PRIVATE
-    Zydis Zycore
+target_link_libraries(Substrant.Hydra
+    PRIVATE Zydis Zycore
+    PUBLIC phnt
 )

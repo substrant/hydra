@@ -1,8 +1,7 @@
 #pragma once
 
 #include <phnt_windows.h>
-
-#include "detail/noncopyable.hpp"
+#include <hydra/detail/noncopyable.hpp>
 
 namespace hy {
     using handle_closer = BOOL(WINAPI*)(HANDLE);

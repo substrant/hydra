@@ -1,4 +1,4 @@
-#include "disasm.hpp"
+#include <hydra/disasm.hpp>
 
 namespace {
     thread_local hy::disasm_instr dummy_instr;

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "io/stream.hpp"
-#include "user/process.hpp"
+#include <hydra/io/stream.hpp>
+#include <hydra/user/process.hpp>
 
 namespace hy::mem {
     struct stream_attrs {

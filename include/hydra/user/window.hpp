@@ -1,6 +1,6 @@
 #pragma once
 
-#include "detail/pch.hpp"
+#include <hydra/detail/pch.hpp>
 
 namespace hy {
     namespace detail {

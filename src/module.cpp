@@ -1,9 +1,9 @@
-#include "detail/pch.hpp"
+#include <hydra/detail/pch.hpp>
 
-#include "user/process.hpp"
-#include "module.hpp"
+#include <hydra/user/process.hpp>
+#include <hydra/module.hpp>
 
-#include "io/error.hpp"
+#include <hydra/io/error.hpp>
 
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 

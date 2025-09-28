@@ -1,4 +1,4 @@
-#include "user/thread.hpp"
+#include <hydra/user/thread.hpp>
 
 namespace hy {
 }

@@ -1,15 +1,16 @@
 #pragma once
 
-#include "detail/pch.hpp"
+#include <hydra/detail/pch.hpp>
 
-#include "module.hpp"
-#include "memory.hpp"
-#include "detail/generator.hpp"
-#include "handle.hpp"
-#include "detail/noncopyable.hpp"
-#include "user/window.hpp"
+#include <hydra/memory.hpp>
+#include <hydra/handle.hpp>
+#include <hydra/module.hpp>
 
-#include "thread.hpp"
+#include <hydra/detail/generator.hpp>
+#include <hydra/detail/noncopyable.hpp>
+
+#include <hydra/user/window.hpp>
+#include <hydra/user/thread.hpp>
 
 namespace hy {
     // Forward-decl

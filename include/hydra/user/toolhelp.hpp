@@ -1,9 +1,9 @@
 #pragma once
 
-#include "detail/pch.hpp"
+#include <hydra/detail/pch.hpp>
 
-#include "handle.hpp"
-#include "detail/generator.hpp"
+#include <hydra/handle.hpp>
+#include <hydra/detail/generator.hpp>
 
 #ifdef __cplusplus
 extern "C" {

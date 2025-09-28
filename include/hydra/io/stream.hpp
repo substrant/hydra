@@ -1,7 +1,7 @@
 #pragma once
 
-#include "detail/noncopyable.hpp"
-#include "io/error.hpp"
+#include <hydra/detail/noncopyable.hpp>
+#include <hydra/io/error.hpp>
 
 namespace hy::mem {
     class buffer;

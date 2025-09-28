@@ -1,7 +1,7 @@
 #pragma once
 
-#include "detail/pch.hpp"
-#include "detail/generator.hpp"
+#include <hydra/detail/pch.hpp>
+#include <hydra/detail/generator.hpp>
 
 namespace hy::mem {
     /// Represents a generic address type.

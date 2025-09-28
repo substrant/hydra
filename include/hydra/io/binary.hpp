@@ -1,8 +1,8 @@
 #pragma once
 
-#include "io/stream.hpp"
-#include "memory.hpp"
-#include "detail/noncopyable.hpp"
+#include <hydra/io/stream.hpp>
+#include <hydra/memory.hpp>
+#include <hydra/detail/noncopyable.hpp>
 
 namespace hy::io {
     class binary : public detail::noncopyable {

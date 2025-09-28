@@ -1,9 +1,7 @@
 #pragma once
 
-#include <functional>
-#include <optional>
-
-#include "memory.hpp"
+#include <hydra/detail/pch.hpp>
+#include <hydra/memory.hpp>
 
 #pragma comment(lib, "Zydis.lib")
 #pragma comment(lib, "Zycore.lib")

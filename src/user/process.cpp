@@ -1,4 +1,4 @@
-#include "detail/pch.hpp"
+#include <hydra/detail/pch.hpp>
 
 #include <psapi.h>
 
@@ -6,8 +6,8 @@
 #include <unordered_set>
 #include <ranges>
 
-#include "user/toolhelp.hpp"
-#include "user/process.hpp"
+#include <hydra/user/toolhelp.hpp>
+#include <hydra/user/process.hpp>
 
 namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;

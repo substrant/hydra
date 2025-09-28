@@ -1,6 +1,6 @@
 #pragma once
 
-#include "memory.hpp"
+#include <hydra/memory.hpp>
 
 namespace hy {
     // Forward-decl

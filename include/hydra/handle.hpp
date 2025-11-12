@@ -1,51 +1,83 @@
 #pragma once
 
 #include <phnt_windows.h>
-#include <hydra/detail/noncopyable.hpp>
+
+#include "hydra/detail.hpp"
 
 namespace hy {
-    using handle_closer = BOOL(WINAPI*)(HANDLE);
+    namespace detail {
+        template <typename R>
+        concept ValidHandleReturn = std::same_as<R, void> || std::same_as<R, BOOL> || std::same_as<R, bool> || std::same_as<R, NTSTATUS>;
 
-    template <handle_closer CloseFn>
-    class unique_handle : public detail::noncopyable {
-        HANDLE m_handle = nullptr;
+        template <typename F>
+        concept HandleCallable = requires(typename func_traits<std::remove_cvref_t<F>>::template arg_t<0> h) {
+            { std::invoke(std::declval<F>(), h) } -> ValidHandleReturn;
+        };
+    }
+
+    template <detail::HandleCallable auto CloseFn>
+    class handle {
+    public:
+        using type = detail::func_traits<std::remove_cvref_t<decltype(CloseFn)>>::template arg_t<0>;
+
+    private:
+        type m_handle = nullptr;
         bool m_owner = false;
 
+    protected:
+        constexpr bool _close() {
+            if constexpr (std::is_same_v<std::invoke_result_t<decltype(CloseFn), type>, void>) {
+                std::invoke(CloseFn, m_handle);
+                return true;
+            }
+            return std::invoke(CloseFn, m_handle);
+        }
+
     public:
-        explicit unique_handle(const bool no_dispose = false) : m_owner(!no_dispose) { }
+        explicit handle(const bool no_dispose = false) : m_owner(!no_dispose) { }
 
-        explicit unique_handle(const HANDLE handle, const bool no_dispose = false) : m_handle(handle), m_owner(!no_dispose) { }
+        explicit handle(const type handle, const bool no_dispose = false) : m_handle(handle), m_owner(!no_dispose) { }
 
-        unique_handle& operator=(const HANDLE handle) {
+        handle& operator=(const type handle) {
             // Close old handle
-            if (is_valid())
-                CloseFn(m_handle);
+            if (is_valid()) _close();
 
             // Set new handle
             m_handle = handle;
             return *this;
         };
 
-        bool is_valid() const { return m_handle != nullptr; }
+        [[nodiscard]] bool is_valid() const { return m_handle != nullptr; }
 
-        HANDLE get() const { return m_handle; }
+        type get() const { return m_handle; }
 
-        HANDLE operator*() const { return m_handle; }
+        type operator*() const { return m_handle; }
 
-        operator HANDLE() const { return m_handle; }
+        operator type() const { return m_handle; } // NOLINT: Expected implicit conversion
 
         bool close() {
             if (!is_valid())
                 return false;
 
-            const bool success = m_owner ? CloseFn(m_handle) : true;
+            const bool success = m_owner ? _close() : true;
             if (success) m_handle = nullptr;
 
             return success;
         }
 
-        ~unique_handle() {
+        ~handle() {
             close();
         }
     };
+
+    template <typename T>
+    struct _impl_handle_t;
+
+    template <auto CloseFn>
+    struct _impl_handle_t<handle<CloseFn>> {
+        using type = handle<CloseFn>::type;
+    };
+
+    template <typename T>
+    using handle_t = _impl_handle_t<T>::type;
 }

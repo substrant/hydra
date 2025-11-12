@@ -1,7 +1,7 @@
 #pragma once
 
 #include <hydra/detail/pch.hpp>
-#include <hydra/memory.hpp>
+#include <hydra/mem/core.hpp>
 
 #pragma comment(lib, "Zydis.lib")
 #pragma comment(lib, "Zycore.lib")
@@ -22,7 +22,7 @@ namespace hy {
     };
 
     struct disasm_instr {
-        mem::addr               offset{};
+        addr               offset{};
         ZydisDecodedInstruction data{};
         ZydisDecodedOperand     args[ZYDIS_MAX_OPERAND_COUNT]{};
 
@@ -52,7 +52,7 @@ namespace hy {
             };
         }
 
-        static predicate disp(const int index, const mem::addr value) {
+        static predicate disp(const int index, const addr value) {
             return [=](const disasm_instr& instr) -> bool {
                 if (index > std::max(instr.operand_count() - 1, 0))
                     return false;
@@ -92,15 +92,15 @@ namespace hy {
 
     class disasm {
     public:
-        mem::buffer m_buffer;
-        mem::addr m_rip = nullptr; // Remote base address of buffer
-        mem::addr m_off = 0ull;
+        buffer m_buffer;
+        addr m_rip = nullptr; // Remote base address of buffer
+        addr m_off = 0ull;
 
         ZyanStatus     m_status = 0;
         ZydisDecoder   m_decoder;
         ZydisFormatter m_formatter;
 
-        explicit disasm(mem::buffer buffer) : m_buffer(std::move(buffer)) {
+        explicit disasm(buffer buffer) : m_buffer(std::move(buffer)) {
             ZydisDecoderInit(&m_decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
             ZydisFormatterInit(&m_formatter, ZYDIS_FORMATTER_STYLE_INTEL);
         }
@@ -109,7 +109,7 @@ namespace hy {
             return { *this };
         }
 
-        mem::addr pos() const {
+        addr pos() const {
             return m_buffer.base() + m_off;
         }
 
@@ -121,7 +121,7 @@ namespace hy {
 
         bool skip(int n = 1);
 
-        bool match(const std::uint8_t* pattern, const char* mask, mem::addr stop_off, direction dir = direction::forwards);
+        bool match(const std::uint8_t* pattern, const char* mask, addr stop_off, direction dir = direction::forwards);
 
         std::optional<disasm> find_impl(std::size_t limit, const code_query::predicate& master_predicate) const;
 

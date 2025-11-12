@@ -6,8 +6,8 @@
 #include <unordered_set>
 #include <ranges>
 
-#include <hydra/user/toolhelp.hpp>
-#include <hydra/user/process.hpp>
+#include <hydra/sys/toolhelp.hpp>
+#include <hydra/sys/process.hpp>
 
 namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;
@@ -70,35 +70,22 @@ namespace hy {
         return !m_module_list.empty();
     }
 
-    std::shared_ptr<process> process::from_handle(const HANDLE handle) {
+    std::shared_ptr<process> process::open(const HANDLE handle) {
         std::shared_ptr<process> proc(new process(handle, true));
         proc->init();
         return proc;
     }
 
-    std::shared_ptr<process> process::from_id(const DWORD id) {
+    std::shared_ptr<process> process::open(const DWORD id) {
         std::shared_ptr<process> proc(new process(OpenProcess(PROCESS_ALL_ACCESS, FALSE, id)));
         proc->init();
         return proc;
     }
 
-    std::shared_ptr<process> process::from_window(const std::string_view name) {
-        const auto proc_window = FindWindowA(nullptr, name.data()); // NOLINT(bugprone-suspicious-stringview-data-usage) The same bug would exist in C.
-        if (proc_window == nullptr)
-            return nullptr;
-
-        DWORD proc_id;
-        if (GetWindowThreadProcessId(proc_window, &proc_id); proc_id == NULL)
-            return nullptr;
-
-        const auto handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, proc_id);
-        return from_handle(handle);
-    }
-
-    std::shared_ptr<process> process::from_module(const std::string_view name) {
+    std::shared_ptr<process> process::open(const std::string_view name) {
         for (const auto entry : toolhelp::get_processes()) {
             if (entry.szExeFile == name)
-                return from_id(entry.th32ProcessID);
+                return open(entry.th32ProcessID);
         }
         return nullptr;
     }
@@ -158,15 +145,15 @@ namespace hy {
         // Allocate space and fill bases
         linked_bases.reserve(m_modules.size());
         for (auto&& v : m_modules | std::views::values)
-            linked_bases.insert(v->remote_buffer().base());
+            linked_bases.insert(v->buffer().base());
 
-        for (const auto mbi : mm_pages(mem::um_bounds)) {
+        for (const auto mbi : mm_pages(um_bounds)) {
             // Is this memory accessible?
             if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_NOACCESS || mbi.Protect & PAGE_GUARD))
                 continue;
 
             // Allocate data for page and read it
-            auto buffer = mem::buffer::create(mem::page_size);
+            const auto buffer = buffer::create(page_size);
             if (!mm_read(mbi.BaseAddress, buffer)) continue;
 
             // If bound to PEB, skip
@@ -198,7 +185,7 @@ namespace hy {
         return handle != nullptr ? std::make_shared<window>(handle) : nullptr;
     }
 
-    std::size_t process::mm_read(const mem::addr base, const mem::buffer& buffer, std::size_t size) const {
+    std::size_t process::mm_read(const addr base, const buffer& buffer, std::size_t size) const {
         size = (size == 0) ? buffer.size() : size;
         if (size == 0 || size > buffer.size()) return false;
 
@@ -209,11 +196,11 @@ namespace hy {
         return written;
     }
 
-    bool process::mm_query(const mem::addr base, MEMORY_BASIC_INFORMATION& mbi) const {
+    bool process::mm_query(const addr base, MEMORY_BASIC_INFORMATION& mbi) const {
         return VirtualQueryEx(m_handle, base, &mbi, sizeof(mbi));
     }
 
-    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const mem::buffer& buffer) const {
+    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const buffer& buffer) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::uintptr_t at = buffer.base();
 
@@ -223,13 +210,13 @@ namespace hy {
         }
     }
 
-    DWORD process::mm_protect(const mem::addr base, const std::size_t size, const DWORD new_prot) const {
+    DWORD process::mm_protect(const addr base, const std::size_t size, const DWORD new_prot) const {
         DWORD old_prot;
         return VirtualProtectEx(m_handle, base, size, new_prot, &old_prot) ? new_prot : 0;
     }
 
     // Returns amount of pages read
-    std::size_t process::mm_dump(const mem::addr base, const mem::buffer& buffer, dump_context* ctx) const {
+    std::size_t process::mm_dump(const addr base, const buffer& buffer, dump_context* ctx) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::deque<std::uintptr_t> page_queue;
         std::size_t pages_read = 0;
@@ -240,7 +227,7 @@ namespace hy {
         // Helper function to read page and track progress
         const auto read_page = [&](const std::uintptr_t va) -> bool {
             const auto offset = va - base.i;
-            const auto success = mm_read(va, buffer.base() + offset, mem::page_size);
+            const auto success = mm_read(va, buffer.base() + offset, page_size);
 
             if (success) pages_read++;
             return success;
@@ -248,7 +235,7 @@ namespace hy {
 
         // Helper function for status reports
         auto last_tick = hw_clock::now();
-        const auto signal_report = [&] -> void {
+        const auto signal_report = [&]() -> void {
             const auto current_tick = hw_clock::now();
             if (current_tick - last_tick < std::chrono::milliseconds(100))
                 return;
@@ -262,7 +249,7 @@ namespace hy {
         // Phase 1:
         //   Go through each page in the region and attempt to read
         //   If we can't read the page, queue it for the 2nd phase
-        for (std::uintptr_t page_base = base; page_base < end_address; page_base += mem::page_size) {
+        for (std::uintptr_t page_base = base; page_base < end_address; page_base += page_size) {
             if (!mm_query(page_base, mbi)) {
                 // Skip page
                 continue;
@@ -294,14 +281,14 @@ namespace hy {
         return pages_read;
     }
 
-    std::vector<mem::addr> process::scan_heap(const std::uint8_t* pattern, const char* mask) const {
-        std::vector<mem::addr> results;
+    std::vector<addr> process::scan_heap(const std::uint8_t* pattern, const char* mask) const {
+        std::vector<addr> results;
         MEMORY_BASIC_INFORMATION mbi;
         auto time = std::chrono::system_clock::now();
 
-        for (std::uintptr_t addr = mem::um_bounds.base(); addr < mem::um_bounds.end(); ) {
+        for (std::uintptr_t addr = um_bounds.base(); addr < um_bounds.end(); ) {
             if (!mm_query(addr, mbi)) {
-                addr += mem::page_size;
+                addr += page_size;
                 continue;
             }
 
@@ -319,11 +306,11 @@ namespace hy {
                 continue;
             }
 
-            const auto dump = mem::buffer::create(mbi.RegionSize);
+            const auto dump = buffer::create(mbi.RegionSize);
             if (mm_read(mbi.BaseAddress, dump)) {
                 for (const auto match : dump.scan_aob(pattern, mask)) {
                     const auto offset = match - dump.base();
-                    results.emplace_back(mem::addr(mbi.BaseAddress) + offset);
+                    results.emplace_back(hy::addr(mbi.BaseAddress) + offset);
                 }
             }
 
@@ -333,19 +320,19 @@ namespace hy {
         return results;
     }
 
-    mem::addr process::mm_alloc(const mem::addr base, const std::size_t size, const DWORD flags, const DWORD protect) const {
+    addr process::mm_alloc(const addr base, const std::size_t size, const DWORD flags, const DWORD protect) const {
         return VirtualAllocEx(m_handle, base, size, flags, protect);
     }
 
-    mem::addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
+    addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
         return mm_alloc(nullptr, size, flags, protect);
     }
 
-    mem::addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
+    addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
         return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
     }
 
-    std::size_t process::mm_write(const mem::addr base, const mem::buffer& buffer, std::size_t size) const {
+    std::size_t process::mm_write(const addr base, const buffer& buffer, std::size_t size) const {
         if (size == 0) size = buffer.size();
         if (size > buffer.size()) return 0;
 
@@ -356,7 +343,7 @@ namespace hy {
         return written;
     }
 
-    mem::addr process::mm_inject(const mem::buffer& source, const DWORD protect) const {
+    addr process::mm_inject(const buffer& source, const DWORD protect) const {
         const auto base = mm_alloc(nullptr, source.size(), MEM_COMMIT | MEM_RESERVE, protect);
         if (base == nullptr) return nullptr;
 
@@ -368,7 +355,7 @@ namespace hy {
         return base;
     }
 
-    bool process::mm_free(const mem::addr base, const DWORD flags) const {
+    bool process::mm_free(const addr base, const DWORD flags) const {
         return VirtualFreeEx(m_handle, base, 0, flags);
     }
 
@@ -386,8 +373,8 @@ namespace hy {
         //std::cout << "[+] Base Address: 0x" << std::hex << info_out->base << "\n";
 
         // Copy header information to the target process
-        if (!mm_write(info_out->base, pe.m_buffer, info_out->header_size))
-            return map_status::failed_write;
+        //if (!mm_write(info_out->base, pe.m_stream, info_out->header_size))
+        //    return map_status::failed_write;
 
         // Write sections to the target process
         for (const auto& section : pe.sections()) {
@@ -400,7 +387,7 @@ namespace hy {
             const auto dest_address = reinterpret_cast<std::uintptr_t>(info_out->base) + section->raw()->VirtualAddress;
 
             // Write the section data to the target process
-            if (!mm_write(dest_address, pe.m_buffer.base() + section->raw()->PointerToRawData, section_size)) {
+            if (!mm_write(dest_address, pe.m_stream.base() + section->raw()->PointerToRawData, section_size)) {
                 //std::cout << "[-] Failed to write section to target process.\n";
                 return map_status::failed_write;
             }

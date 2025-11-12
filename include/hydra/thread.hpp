@@ -1,15 +1,16 @@
 #pragma once
 
-#include <hydra/memory.hpp>
-#include <hydra/handle.hpp>
+#include <phnt_windows.h>
+#include <phnt.h>
 
-#include <hydra/detail/noncopyable.hpp>
-#include <hydra/user/toolhelp.hpp>
+#include "hydra/detail.hpp"
+#include "hydra/memory.hpp"
+#include "hydra/handle.hpp"
 
 namespace hy {
     class thread : public detail::noncopyable, public std::enable_shared_from_this<thread> {
         std::shared_ptr<thread> _self = nullptr;
-        unique_handle<CloseHandle> _handle{};
+        handle<CloseHandle> _handle{};
         DWORD _suspension_depth = 0;
         CONTEXT _context{};
 
@@ -38,9 +39,9 @@ namespace hy {
         
         DWORD pid() const { return GetProcessIdOfThread(_handle); }
 
-        mem::addr start_address() const {
+        addr entry() const {
             std::uintptr_t info{};
-            NtQueryInformationThread(_handle, ThreadQuerySetWin32StartAddress, &info, sizeof(info), nullptr);
+            (void)NtQueryInformationThread(_handle, ThreadQuerySetWin32StartAddress, &info, sizeof(info), nullptr);
             return info;
         }
 

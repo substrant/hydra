@@ -1,4 +1,5 @@
-#include <hydra/disasm.hpp>
+#include <hydra/mem/core.hpp>
+#include <hydra/mem/disasm.hpp>
 
 namespace {
     thread_local hy::disasm_instr dummy_instr;
@@ -23,19 +24,19 @@ namespace hy {
         return true;
     }
 
-    bool disasm::match(const std::uint8_t* pattern, const char* mask, const mem::addr stop_off, const direction dir) {
+    bool disasm::match(const std::uint8_t* pattern, const char* mask, const addr stop_off, const direction dir) {
         const std::intptr_t step = (dir == direction::forwards) ? 1 : -1;
         const std::size_t pattern_size = strlen(mask);
 
-        mem::addr current = pos();
-        const mem::addr end = current + stop_off;
+        addr current = pos();
+        const addr end = current + stop_off;
 
         // Early exit if we're already out of bounds
         if ((dir == direction::forwards && current >= end) || (dir == direction::backwards && current <= end))
             return false;
 
         while ((dir == direction::forwards && current < end) || (dir == direction::backwards && current > end)) {
-            if (mem::detail::match_aob(current, pattern, mask, pattern_size)) {
+            if (detail::match_aob(current, pattern, mask, pattern_size)) {
                 m_off = current - m_buffer.base(); // update position only on match
                 return true;
             }

@@ -1,6 +1,4 @@
-#pragma once
-
-#include <hydra/user/window.hpp>
+#include <hydra/sys/window.hpp>
 
 HWND hy::window::find(const WNDENUMPROC proc, const DWORD proc_id) {
     detail::find_window_context ctx { .proc_id = proc_id };

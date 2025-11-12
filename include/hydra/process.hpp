@@ -2,15 +2,11 @@
 
 #include <hydra/detail/pch.hpp>
 
-#include <hydra/memory.hpp>
-#include <hydra/handle.hpp>
-#include <hydra/module.hpp>
+#include <hydra/mem/core.hpp>
+#include <hydra/mem/module.hpp>
 
-#include <hydra/detail/generator.hpp>
-#include <hydra/detail/noncopyable.hpp>
-
-#include <hydra/user/window.hpp>
-#include <hydra/user/thread.hpp>
+#include <hydra/sys/window.hpp>
+#include <hydra/sys/thread.hpp>
 
 namespace hy {
     // Forward-decl
@@ -46,16 +42,13 @@ namespace hy {
 
     public:
         // Open a process from an existing handle. The handle will not close on destruction.
-        static std::shared_ptr<process> from_handle(HANDLE handle);
+        static std::shared_ptr<process> open(HANDLE handle);
 
         // Open a process from a process ID.
-        static std::shared_ptr<process> from_id(DWORD id);
-
-        // Open a process from an existing window.
-        static std::shared_ptr<process> from_window(std::string_view name);
+        static std::shared_ptr<process> open(DWORD id);
 
         // Open a process from a module name.
-        static std::shared_ptr<process> from_module(std::string_view name);
+        static std::shared_ptr<process> open(std::string_view name);
 
         // Determines if the process handle is valid.
         bool is_valid() const;
@@ -88,27 +81,27 @@ namespace hy {
 
         /* Memory functions */
 
-        std::size_t mm_read(mem::addr base, const mem::buffer& buffer, std::size_t size = 0) const;
+        std::size_t mm_read(addr base, const buffer& buffer, std::size_t size = 0) const;
 
-        DWORD mm_protect(mem::addr base, std::size_t size, DWORD new_prot) const;
+        DWORD mm_protect(addr base, std::size_t size, DWORD new_prot) const;
 
-        std::size_t mm_write(mem::addr base, const mem::buffer& buffer, std::size_t size = 0) const;
+        std::size_t mm_write(addr base, const buffer& buffer, std::size_t size = 0) const;
 
-        bool mm_query(mem::addr base, MEMORY_BASIC_INFORMATION& mbi) const;
+        bool mm_query(addr base, MEMORY_BASIC_INFORMATION& mbi) const;
 
-        detail::generator<MEMORY_BASIC_INFORMATION> mm_pages(const mem::buffer& buffer) const;
+        detail::generator<MEMORY_BASIC_INFORMATION> mm_pages(const buffer& buffer) const;
 
-        std::size_t mm_dump(mem::addr base, const mem::buffer& buffer, dump_context* ctx) const;
+        std::size_t mm_dump(addr base, const buffer& buffer, dump_context* ctx) const;
 
-        mem::addr mm_alloc(mem::addr base, std::size_t size, DWORD flags, DWORD protect) const;
+        addr mm_alloc(addr base, std::size_t size, DWORD flags, DWORD protect) const;
 
-        mem::addr mm_alloc(std::size_t size, DWORD flags, DWORD protect) const;
+        addr mm_alloc(std::size_t size, DWORD flags, DWORD protect) const;
 
-        mem::addr mm_alloc(std::size_t size, DWORD protect) const;
+        addr mm_alloc(std::size_t size, DWORD protect) const;
 
-        mem::addr mm_inject(const mem::buffer& source, DWORD protect) const;
+        addr mm_inject(const buffer& source, DWORD protect) const;
 
-        bool mm_free(mem::addr base, DWORD flags = MEM_RELEASE) const;
+        bool mm_free(addr base, DWORD flags = MEM_RELEASE) const;
 
         /* PE functions */
 
@@ -116,7 +109,7 @@ namespace hy {
 
         /* Scanning functions */
 
-        std::vector<mem::addr> scan_heap(const std::uint8_t* pattern, const char* mask) const;
+        std::vector<addr> scan_heap(const std::uint8_t* pattern, const char* mask) const;
     };
 
     enum class page_action : std::uint8_t {

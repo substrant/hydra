@@ -1,47 +1,49 @@
 #include <hydra/detail/pch.hpp>
 
-#include <hydra/user/process.hpp>
-#include <hydra/module.hpp>
+#include <hydra/mem/core.hpp>
+#include <hydra/sys/process.hpp>
+#include <hydra/mem/module.hpp>
 
-#include <hydra/io/error.hpp>
+#include "hydra/io/memory.hpp"
+#include "hydra/io/stream.hpp"
 
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 
 namespace hy {
-    pe_image pe_image::load_file(const std::filesystem::path& path) {
+    pe_image pe_image::load(const memory_stream& stm) {
+        return pe_image{stm};
+    }
+
+    pe_image pe_image::load(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
-        if (!file) throw io::error("Could not open file");
+        if (!file) throw std::runtime_error("Could not open file");
 
         const auto size = file.tellg();
-        auto buffer = mem::buffer::create(size);
+        auto buffer = buffer::create(size);
 
         file.seekg(0);
         file.read(buffer.base(), size);
 
-        return pe_image{std::move(buffer)};
+        const local_stream stm{std::move(buffer)};
+        return load(stm);
     }
 
-    pe_image pe_image::load_buffer(const mem::buffer& buffer) {
-        return pe_image{buffer};
+    pe_image pe_image::load_base(const addr base) {
+        const local_stream stm{buffer(base, page_size)};
+        return load(stm);
     }
 
-    pe_image pe_image::load_base(const mem::addr base) {
-        pe_image image{ { base, mem::page_size } };
-        image.read_header();
-        return image;
-    }
-
-    std::shared_ptr<remote_module> remote_module::from_header(const std::shared_ptr<process>& proc, const mem::addr base, const std::string_view name, const std::filesystem::path& path) {
+    std::shared_ptr<remote_module> remote_module::from_header(const std::shared_ptr<process>& proc, const addr base, const std::string& name, const std::filesystem::path& path) {
         // Load (likely partial header) into memory
-        auto buffer = mem::buffer::create(mem::page_size);
-        if (!proc->mm_read(base, buffer))
-            throw std::runtime_error("bruh");
+        auto buffer = buffer::create(page_size);
+        if (!proc->mm_read(base, buffer)) throw std::runtime_error("bruh");
 
         // Create PE image from buffer
-        auto image = std::make_shared<remote_module>(proc, buffer, name, base, path);
+        local_stream stm{buffer};
+        auto image = std::make_shared<detail::ctor_shim<remote_module>>(stm, proc, name, path);
 
         // Parse PE header
-        if (image->read_header() != pe_status::success)
+        if (image->read() != pe_status::success)
             throw std::runtime_error("invalid PE header");
 
         // Get sizes
@@ -57,7 +59,7 @@ namespace hy {
                 throw std::runtime_error("cant grow");
 
             // Parse PE header fully
-            if (image->read_header() != pe_status::success)
+            if (image->read() != pe_status::success)
                 throw std::runtime_error("invalid PE header");
         }
 
@@ -65,71 +67,70 @@ namespace hy {
         return image;
     }
 
-    std::shared_ptr<remote_module> remote_module::from_remote(const std::shared_ptr<process>& proc,const mem::addr base) {
+    std::shared_ptr<remote_module> remote_module::from_remote(const std::shared_ptr<process>& proc, const addr base) {
         char path[MAX_PATH + 1];
         char name[MAX_PATH + 1];
 
         // Get the path of the module
-        std::size_t path_len = GetModuleFileNameExA(*proc, base, path, sizeof(path));
+        const auto path_len = GetModuleFileNameExA(*proc, base, path, sizeof(path));
         path[path_len] = '\0';
 
         // Get the module name only (strip path)
-        std::size_t name_len = GetModuleBaseNameA(*proc, base, name, sizeof(name));
+        const auto name_len = GetModuleBaseNameA(*proc, base, name, sizeof(name));
         name[name_len] = '\0';
 
         return from_header(proc, base, name, path);
     }
 
-    pe_status pe_image::read_header() {
-        const mem::addr base = m_buffer.base();
+    pe_status pe_image::read() {
+        // Start at the beginning of the stream
+        m_stream.seek(0, io_origin::begin);
 
         // Pull and validate the DOS header
-        if (m_buffer.size() < sizeof(IMAGE_DOS_HEADER))
+        if (m_stream.read_obj(m_dos_header) != sizeof(IMAGE_DOS_HEADER))
             return pe_status::buffer_too_small;
-
-        m_dos_header = *static_cast<PIMAGE_DOS_HEADER>(base);
         if (m_dos_header.e_magic != IMAGE_DOS_SIGNATURE)
             return pe_status::bad_dos_signature;
 
-        // Verify e_lfanew and that we can read NT headers
-        if (!m_dos_header.e_lfanew)
-            return pe_status::bad_nt_offset;
+        // Exract the NT offset
+        const auto nt_off = m_dos_header.e_lfanew;
+        if (!nt_off) return pe_status::bad_nt_offset;
 
-        if (m_buffer.size() < m_dos_header.e_lfanew + sizeof(IMAGE_NT_HEADERS))
-            return pe_status::buffer_too_small;
+        // Ensure that we have a large enough buffer for NT headers
+        m_stream.seek(nt_off, io_origin::begin);
 
         // Read NT headers at base + e_lfanew (bro what idiot named this)
-        const auto nt_headers_buf = static_cast<PIMAGE_NT_HEADERS>(base + m_dos_header.e_lfanew);
-        m_nt_headers = *nt_headers_buf;
-
+        if (m_stream.read_obj(m_nt_headers) != sizeof(IMAGE_NT_HEADERS))
+            return pe_status::buffer_too_small;
         if (m_nt_headers.Signature != IMAGE_NT_SIGNATURE)
             return pe_status::bad_nt_signature;
 
-        // Pull section headers
-        const auto sections_count = m_nt_headers.FileHeader.NumberOfSections;
-        auto* section_headers_buf = IMAGE_FIRST_SECTION(nt_headers_buf); // note how we're reading from the buffer, not _nt_headers
-
-        if (!section_headers_buf)
-            return pe_status::bad_sections;
-        if (!m_buffer.contains(static_cast<mem::addr>(section_headers_buf) + sizeof(IMAGE_SECTION_HEADER) * sections_count))
-            return pe_status::buffer_too_small;
+        // Get section infomration
+        const auto n_sections = m_nt_headers.FileHeader.NumberOfSections;
 
         // Prepare section data
         m_sections_lst.clear();
-        m_sections_lst.reserve(sections_count);
+        m_sections_lst.reserve(n_sections);
         m_sections_map.clear();
-        m_sections_map.reserve(sections_count);
+        m_sections_map.reserve(n_sections);
+
+        // Get offset to sections and verify
+        const auto sections_off = nt_off + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + m_nt_headers.FileHeader.SizeOfOptionalHeader;
+        if (!sections_off)
+            return pe_status::bad_sections;
+        m_stream.seek(sections_off, io_origin::begin);
 
         // Fill section data into class
-        for (WORD i = 0; i < sections_count; i++) {
-            auto* section = &section_headers_buf[i];
+        for (WORD i = 0; i < n_sections; i++) {
+            // Read section header from the stream
+            const auto section = m_stream.read_obj<IMAGE_SECTION_HEADER>();
             auto name_view = std::string_view(
-                reinterpret_cast<const char*>(section->Name),
-                strnlen(reinterpret_cast<const char*>(section->Name), IMAGE_SIZEOF_SHORT_NAME)
+                reinterpret_cast<const char*>(section.Name),
+                strnlen(reinterpret_cast<const char*>(section.Name), IMAGE_SIZEOF_SHORT_NAME)
             );
 
-            // Read section into the heap and store it in the vector and map
-            auto section_ptr = std::make_shared<pe_section>(shared_from_this(), *section);
+            // Create section object from section header and update
+            auto section_ptr = std::make_shared<detail::ctor_shim<pe_section>>(shared_from_this(), section);
             m_sections_lst.push_back(section_ptr);
             m_sections_map.emplace(std::string(name_view), section_ptr);
         }
@@ -177,14 +178,14 @@ namespace hy {
         return max_end;
     }
 
-    mem::addr pe_image::import(std::string_view symbol) const {
+    addr pe_image::import(std::string_view symbol) const {
         // Get the data directory for imports
         const auto& import_dir = m_nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
         if (import_dir.Size == 0 || import_dir.VirtualAddress == 0) {
             return nullptr; // No import directory
         }
 
-        const mem::addr base_addr = m_buffer.base();
+        const addr base_addr = m_stream.base();
         const auto import_descriptor = base_addr + import_dir.VirtualAddress;
         
         // Walk through each imported DLL
@@ -212,15 +213,15 @@ namespace hy {
         return nullptr;
     }
 
-    bool remote_module::dump_image(const mem::buffer& buffer, dump_context* ctx) {
-        const auto remote_base = remote_buffer().base();
-        const auto total_pages = (size(pe_size::mapped) + mem::page_size - 1) / mem::page_size;
+    /*bool remote_module::dump_image(const hy::buffer& buffer, dump_context* ctx) {
+        const auto remote_base = buffer.base();
+        const auto total_pages = (size(pe_size::mapped) + page_size - 1) / page_size;
 
         // Grow to full size
-        m_buffer.resize(size(pe_size::file));
+        m_stream.resize(size(pe_size::file));
 
         // Fill with 0xCC and then copy DOS header into buffer
-        std::memset(remote_base, 0xCC, m_buffer.size());
+        std::memset(remote_base, 0xCC, m_stream.size());
         std::memcpy(remote_base, &m_dos_header, sizeof(IMAGE_DOS_HEADER));
 
         // Copy NT headers into buffer
@@ -284,5 +285,5 @@ namespace hy {
         }
 
         return true;
-    }
+    }*/
 }

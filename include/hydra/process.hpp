@@ -29,7 +29,7 @@ namespace hy {
     class process : public detail::noncopyable, public std::enable_shared_from_this<process> {
         std::shared_ptr<process> m_this = nullptr;
         unique_handle<CloseHandle> m_handle;
-        
+
         std::unordered_map<std::uintptr_t, std::shared_ptr<remote_module>> m_modules;
         std::vector<std::shared_ptr<remote_module>> m_module_list;
 
@@ -110,6 +110,32 @@ namespace hy {
         /* Scanning functions */
 
         std::vector<addr> scan_heap(const std::uint8_t* pattern, const char* mask) const;
+    };
+
+    class process_stream final : public detail::mem_stream_impl {
+    protected:
+        std::shared_ptr<process> m_proc;
+        addr m_base;
+
+        explicit process_stream(const std::shared_ptr<process>& proc, const addr base)
+            : m_proc(proc), m_base(base) { }
+
+        /// Reads data from stream into buffer.
+        /// Returns number of bytes actually read.
+        std::size_t read_impl(std::uint8_t* base, std::size_t size) override;
+
+        /// Writes data from buffer to stream.
+        /// Returns number of bytes actually written.
+        std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
+
+    public:
+        /// Destructor for memory_stream.
+        /// Cleans up stream resources.
+        ~process_stream() override = default;
+
+        /// Get the base address of the underlying memory.
+        /// This memory is always remote.
+        addr base() const override;
     };
 
     enum class page_action : std::uint8_t {

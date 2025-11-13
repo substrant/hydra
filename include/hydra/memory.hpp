@@ -382,4 +382,36 @@ namespace hy {
     /// Kernel-mode address bounds buffer.
     /// Range: 0x8000000000000000 - 0xFFFFFFFFFFFFFFFF.
     static auto reg_kernel = region({ 0x8000000000000000ull, 0xFFFFFFFFFFFFFFFFull });
+
+    /// Memory-based stream implementation using hydra::buffer.
+    /// Provides in-memory streaming operations.
+    class memory_stream final : public detail::mem_stream_impl {
+    protected:
+        region m_buffer;
+
+        /// Reads data from stream into buffer.
+        /// Returns number of bytes actually read.
+        std::size_t read_impl(std::uint8_t* base, std::size_t size) override;
+
+        /// Writes data from buffer to stream.
+        /// Returns number of bytes actually written.
+        std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
+
+    public:
+        explicit memory_stream(const region& buffer) : m_buffer(buffer) { }
+
+        explicit memory_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
+
+        // Destructor for memory_stream.
+        /// Cleans up stream resources.
+        ~memory_stream() override = default;
+
+        /// Get the base address of the underlying memory.
+        /// This memory is always local.
+        addr base() const override;
+
+        /// Gets the underlying buffer.
+        /// Returns reference to internal buffer.
+        const region& buffer() const;
+    };
 }

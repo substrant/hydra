@@ -16,21 +16,12 @@ if(NOT (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR CMAKE_CXX_COMPILER_ID STREQUAL 
     )
 endif()
 
-# Ensure Clang is MSVC-compatible if used
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND NOT CMAKE_CXX_SIMULATE_ID STREQUAL "MSVC")
-    message(FATAL_ERROR
-        "Clang must be used with MSVC-like command line (clang-cl) for ABI compatibility. "
-        "Please use clang-cl instead of clang."
-    )
-endif()
-
 # Add source files
 file(GLOB_RECURSE HYDRA_SOURCES CONFIGURE_DEPENDS "src/*.cpp" "src/*.c")
 file(GLOB_RECURSE HYDRA_HEADERS "include/*.hpp" "include/*.h")
 
 # Add dependencies first
 add_subdirectory(dependencies EXCLUDE_FROM_ALL)
-find_package(OpenSSL REQUIRED)
 
 # Create static library
 add_library(Substrant.Hydra STATIC ${HYDRA_SOURCES} ${HYDRA_HEADERS})
@@ -68,7 +59,7 @@ target_include_directories(Substrant.Hydra
 )
 
 target_link_libraries(Substrant.Hydra
-    PRIVATE Zydis Zycore OpenSSL::SSL OpenSSL::Crypto
+    PRIVATE Zydis Zycore #OpenSSL::SSL OpenSSL::Crypto
     PUBLIC phnt
 )
 

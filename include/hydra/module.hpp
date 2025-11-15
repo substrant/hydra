@@ -85,7 +85,7 @@ namespace hy {
 
         std::shared_ptr<process> proc() const { return m_proc; }
 
-        buffer buffer() const { return { m_base, size(pe_size::mapped) }; }
+        [[nodiscard]] region buffer() const { return { m_base, size(pe_size::mapped) }; }
 
         //bool dump_image(const hy::buffer& buffer, dump_context* ctx);
 
@@ -104,29 +104,29 @@ namespace hy {
         explicit pe_section(const std::shared_ptr<pe_image>& image, const IMAGE_SECTION_HEADER& header) : m_image(image), m_header(header) { }
 
     public:
-        const IMAGE_SECTION_HEADER* raw() const { return &m_header; }
+        [[nodiscard]] const IMAGE_SECTION_HEADER* raw() const { return &m_header; }
 
-        std::shared_ptr<pe_image> image() const { return m_image; }
+        [[nodiscard]] std::shared_ptr<pe_image> image() const { return m_image; }
 
-        std::shared_ptr<remote_module> module() const { return std::dynamic_pointer_cast<remote_module>(m_image); }
+        [[nodiscard]] std::shared_ptr<remote_module> module() const { return std::dynamic_pointer_cast<remote_module>(m_image); }
 
-        addr base() const {
+        [[nodiscard]] addr base() const {
             const auto mod = module();
             return mod
                 ? mod->buffer().base() + m_header.VirtualAddress
                 : nullptr;
         }
 
-        buffer buffer(const pe_size size = pe_size::mapped) const {
+        [[nodiscard]] region buffer(const pe_size size = pe_size::mapped) const {
             return { base(), size == pe_size::mapped ? m_header.Misc.VirtualSize : m_header.SizeOfRawData };
         }
 
-        std::string_view name() const {
+        [[nodiscard]] std::string name() const {
             const auto* name_cstr = reinterpret_cast<const char*>(m_header.Name);
             return { name_cstr, strnlen(name_cstr, IMAGE_SIZEOF_SHORT_NAME) };
         }
 
-        std::size_t size() const {
+        [[nodiscard]] std::size_t size() const {
             const auto mod = module();
             return mod ? m_header.Misc.VirtualSize : m_header.SizeOfRawData;
         }

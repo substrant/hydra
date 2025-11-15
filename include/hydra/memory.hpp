@@ -8,8 +8,9 @@
 #include <phnt_windows.h>
 #include <phnt.h>
 
-#include "detail.hpp"
-#include "io/memory.hpp"
+#include <hydra/detail.hpp>
+#include <hydra/memory.hpp>
+#include <hydra/stream.hpp>
 
 namespace hy {
     struct addr;
@@ -384,26 +385,23 @@ namespace hy {
     /// Range: 0x8000000000000000 - 0xFFFFFFFFFFFFFFFF.
     static auto reg_kernel = region({ 0x8000000000000000ull, 0xFFFFFFFFFFFFFFFFull });
 
-    namespace detail {
-        /// Base class for implementing memory streams.
-        class mem_stream_impl : public stream {
-        protected:
-            explicit mem_stream_impl() = default;
+    class memory_stream : public stream {
+    protected:
+        explicit memory_stream() = default;
 
-        public:
-            /// Get the base address of the underlying memory.
-            /// This is an abstract method to be implemented by derived classes.
-            [[nodiscard]] virtual addr base() const;
+    public:
+        /// Get the base address of the underlying memory.
+        /// This is an abstract method to be implemented by derived classes.
+        [[nodiscard]] virtual addr base() const;
 
-            /// Seeks to specified position in stream.
-            /// Returns new position after seek.
-            std::size_t seek(std::int64_t offset, stream_origin origin) override;
-        };
-    }
+        /// Seeks to specified position in stream.
+        /// Returns new position after seek.
+        std::size_t seek(std::int64_t offset, stream_origin origin) override;
+    };
 
     /// Memory-based stream implementation using hydra::buffer.
     /// Provides in-memory streaming operations.
-    class mem_stream final : public detail::mem_stream_impl {
+    class local_stream final : public memory_stream {
     protected:
         region m_buffer;
 
@@ -416,13 +414,13 @@ namespace hy {
         std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
 
     public:
-        explicit mem_stream(const region& buffer) : m_buffer(buffer) { }
+        explicit local_stream(const region& buffer) : m_buffer(buffer) { }
 
-        explicit mem_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
+        explicit local_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
 
         // Destructor for memory_stream.
         /// Cleans up stream resources.
-        ~mem_stream() override = default;
+        ~local_stream() override = default;
 
         /// Get the base address of the underlying memory.
         /// This memory is always local.

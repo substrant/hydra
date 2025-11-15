@@ -113,7 +113,7 @@ namespace hy {
         std::vector<addr> scan_heap(const std::uint8_t* pattern, const char* mask) const;
     };
 
-    class process_stream final : public detail::mem_stream_impl {
+    class process_stream final : public detail::memory_stream {
     protected:
         std::shared_ptr<process> m_proc;
         addr m_base;
@@ -148,7 +148,7 @@ namespace hy {
 
     /// Memory-based stream implementation using hydra::process.
     /// Provides in-memory streaming operations.
-    class remote_stream final : public detail::mem_stream_impl {
+    class remote_stream final : public detail::memory_stream {
     protected:
         std::shared_ptr<process> m_proc;
         addr m_base;

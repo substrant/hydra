@@ -17,7 +17,8 @@ namespace hy::detail {
     template <class T>
     concept Byte =
         std::same_as<std::remove_cvref_t<T>, std::int8_t> ||
-        std::same_as<std::remove_cvref_t<T>, std::uint8_t>;
+        std::same_as<std::remove_cvref_t<T>, std::uint8_t> ||
+        std::same_as<std::remove_cvref_t<T>, char>;
 
     template <class T>
     concept IntegralPointer =

@@ -159,7 +159,7 @@ namespace hy {
 
     /// Represents a region of memory. It can either be created, inherited from,
     /// or point to an unmanaged memory range.
-    class region {
+    class region { // TODO: implement virtual memory mapping and shared memory regions, rename to alloc_local/alloc_shared opt name
         addr         m_base = nullptr; // 0x00
         std::size_t  m_size = 0;       // 0x08
         bool         m_owner;          // 0x10
@@ -207,7 +207,7 @@ namespace hy {
 
         /// Allocates a buffer of given size.
         /// Buffer owns its memory.
-        static region create(const std::size_t size, const bool zero = false) {
+        static region alloc_local(const std::size_t size, const bool zero = false) {
             region buf;
 
             buf.m_size = size;
@@ -379,17 +379,25 @@ namespace hy {
 
     /// User-mode address bounds buffer.
     /// Range: 0x0000000000000000 - 7FFFFFFFFFFFFFFF.
-    static auto reg_user = region({ 0x0000000000000000ull, 0x7FFFFFFFFFFFFFFFull });
+    static auto um_region = region({ 0x0000000000000000ull, 0x7FFFFFFFFFFFFFFFull });
 
     /// Kernel-mode address bounds buffer.
     /// Range: 0x8000000000000000 - 0xFFFFFFFFFFFFFFFF.
-    static auto reg_kernel = region({ 0x8000000000000000ull, 0xFFFFFFFFFFFFFFFFull });
+    static auto km_region = region({ 0x8000000000000000ull, 0xFFFFFFFFFFFFFFFFull });
 
     class memory_stream : public stream {
     protected:
         explicit memory_stream() = default;
 
     public:
+        /// Reads data from stream into buffer.
+        /// Returns number of bytes actually read.
+        virtual std::size_t read_impl(std::uint8_t* base, std::size_t size) const { return 0; } // stub
+
+        /// Writes data from buffer to stream.
+        /// Returns number of bytes actually written.
+        virtual std::size_t write_impl(std::uint8_t* base, std::size_t size) const { return 0; } // stub
+
         /// Get the base address of the underlying memory.
         /// This is an abstract method to be implemented by derived classes.
         [[nodiscard]] virtual addr base() const;
@@ -399,6 +407,11 @@ namespace hy {
         std::size_t seek(std::int64_t offset, stream_origin origin) override;
     };
 
+    namespace detail {
+        template <typename T>
+        concept MemoryStreamLike = std::derived_from<T, memory_stream> && !std::is_abstract_v<T>;
+    }
+
     /// Memory-based stream implementation using hydra::buffer.
     /// Provides in-memory streaming operations.
     class local_stream final : public memory_stream {
@@ -407,11 +420,11 @@ namespace hy {
 
         /// Reads data from stream into buffer.
         /// Returns number of bytes actually read.
-        std::size_t read_impl(std::uint8_t* base, std::size_t size) override;
+        std::size_t read_impl(std::uint8_t* base, std::size_t size) const override;
 
         /// Writes data from buffer to stream.
         /// Returns number of bytes actually written.
-        std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
+        std::size_t write_impl(std::uint8_t* base, std::size_t size) const override;
 
     public:
         explicit local_stream(const region& buffer) : m_buffer(buffer) { }

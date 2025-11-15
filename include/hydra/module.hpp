@@ -51,7 +51,7 @@ namespace hy {
 
         static pe_image load(const std::filesystem::path& path);
 
-        static pe_image load(const memory_stream &stm);
+        static pe_image load(const memory_stream& stm) { return pe_image(stm); }
 
         static pe_image load_base(addr base);
 
@@ -95,8 +95,6 @@ namespace hy {
     };
 
     class pe_section {
-        friend class pe_image;
-
         std::shared_ptr<pe_image> m_image;
         IMAGE_SECTION_HEADER m_header;
 

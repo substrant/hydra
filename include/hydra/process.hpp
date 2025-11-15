@@ -148,7 +148,7 @@ namespace hy {
 
     /// Memory-based stream implementation using hydra::process.
     /// Provides in-memory streaming operations.
-    class remote_stream final : public detail::memory_stream {
+    class remote_stream final : public memory_stream {
     protected:
         std::shared_ptr<process> m_proc;
         addr m_base;
@@ -158,11 +158,11 @@ namespace hy {
 
         /// Reads data from stream into buffer.
         /// Returns number of bytes actually read.
-        std::size_t read_impl(std::uint8_t* base, std::size_t size) override;
+        std::size_t read_impl(std::uint8_t* base, std::size_t size) const override;
 
         /// Writes data from buffer to stream.
         /// Returns number of bytes actually written.
-        std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
+        std::size_t write_impl(std::uint8_t* base, std::size_t size) const override;
 
     public:
         /// Destructor for memory_stream.
@@ -171,6 +171,6 @@ namespace hy {
 
         /// Get the base address of the underlying memory.
         /// This memory is always remote.
-        addr base() const override;
+        [[nodiscard]] addr base() const override;
     };
 }

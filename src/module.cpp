@@ -1,25 +1,21 @@
-#include <hydra/detail/pch.hpp>
+#include <hydra/module.hpp>
+#include <hydra/memory.hpp>
+#include <hydra/process.hpp>
 
-#include <hydra/mem/core.hpp>
-#include <hydra/sys/process.hpp>
-#include <hydra/mem/module.hpp>
-
-#include "hydra/io/memory.hpp"
-#include "hydra/io/stream.hpp"
+#include <filesystem>
+#include <fstream>
+#include <psapi.h>
+#include <ranges>
 
 static constexpr auto map_raw_section = std::views::transform([](const auto& x) { return x->raw(); });
 
 namespace hy {
-    pe_image pe_image::load(const memory_stream& stm) {
-        return pe_image{stm};
-    }
-
     pe_image pe_image::load(const std::filesystem::path& path) {
         std::ifstream file(path, std::ios::binary | std::ios::ate);
         if (!file) throw std::runtime_error("Could not open file");
 
         const auto size = file.tellg();
-        auto buffer = buffer::create(size);
+        auto buffer = region::alloc_local(size);
 
         file.seekg(0);
         file.read(buffer.base(), size);
@@ -29,13 +25,13 @@ namespace hy {
     }
 
     pe_image pe_image::load_base(const addr base) {
-        const local_stream stm{buffer(base, page_size)};
+        const local_stream stm{region(base, page_size)};
         return load(stm);
     }
 
     std::shared_ptr<remote_module> remote_module::from_header(const std::shared_ptr<process>& proc, const addr base, const std::string& name, const std::filesystem::path& path) {
         // Load (likely partial header) into memory
-        auto buffer = buffer::create(page_size);
+        auto buffer = region::alloc_local(page_size);
         if (!proc->mm_read(base, buffer)) throw std::runtime_error("bruh");
 
         // Create PE image from buffer
@@ -84,7 +80,7 @@ namespace hy {
 
     pe_status pe_image::read() {
         // Start at the beginning of the stream
-        m_stream.seek(0, io_origin::begin);
+        m_stream.seek(0, stream_origin::begin);
 
         // Pull and validate the DOS header
         if (m_stream.read_obj(m_dos_header) != sizeof(IMAGE_DOS_HEADER))
@@ -97,7 +93,7 @@ namespace hy {
         if (!nt_off) return pe_status::bad_nt_offset;
 
         // Ensure that we have a large enough buffer for NT headers
-        m_stream.seek(nt_off, io_origin::begin);
+        m_stream.seek(nt_off, stream_origin::begin);
 
         // Read NT headers at base + e_lfanew (bro what idiot named this)
         if (m_stream.read_obj(m_nt_headers) != sizeof(IMAGE_NT_HEADERS))
@@ -118,7 +114,7 @@ namespace hy {
         const auto sections_off = nt_off + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + m_nt_headers.FileHeader.SizeOfOptionalHeader;
         if (!sections_off)
             return pe_status::bad_sections;
-        m_stream.seek(sections_off, io_origin::begin);
+        m_stream.seek(sections_off, stream_origin::begin);
 
         // Fill section data into class
         for (WORD i = 0; i < n_sections; i++) {

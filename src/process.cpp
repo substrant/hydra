@@ -1,13 +1,12 @@
-#include <hydra/detail/pch.hpp>
-
-#include <psapi.h>
-
 #include <deque>
 #include <unordered_set>
 #include <ranges>
-
-#include <hydra/sys/toolhelp.hpp>
-#include <hydra/sys/process.hpp>
+#include <hydra/toolhelp.hpp>
+#include <chrono>
+#include <hydra/process.hpp>
+#include <phnt_windows.h>
+#include <phnt.h>
+#include <psapi.h>
 
 namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;
@@ -147,13 +146,13 @@ namespace hy {
         for (auto&& v : m_modules | std::views::values)
             linked_bases.insert(v->buffer().base());
 
-        for (const auto mbi : mm_pages(um_bounds)) {
+        for (const auto mbi : mm_pages(um_region)) {
             // Is this memory accessible?
             if (mbi.State != MEM_COMMIT || (mbi.Protect & PAGE_NOACCESS || mbi.Protect & PAGE_GUARD))
                 continue;
 
             // Allocate data for page and read it
-            const auto buffer = buffer::create(page_size);
+            const auto buffer = region::alloc_local(page_size);
             if (!mm_read(mbi.BaseAddress, buffer)) continue;
 
             // If bound to PEB, skip
@@ -185,7 +184,7 @@ namespace hy {
         return handle != nullptr ? std::make_shared<window>(handle) : nullptr;
     }
 
-    std::size_t process::mm_read(const addr base, const buffer& buffer, std::size_t size) const {
+    std::size_t process::mm_read(const addr base, const region& buffer, std::size_t size) const {
         size = (size == 0) ? buffer.size() : size;
         if (size == 0 || size > buffer.size()) return false;
 
@@ -200,7 +199,7 @@ namespace hy {
         return VirtualQueryEx(m_handle, base, &mbi, sizeof(mbi));
     }
 
-    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const buffer& buffer) const {
+    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const region& buffer) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::uintptr_t at = buffer.base();
 
@@ -216,7 +215,7 @@ namespace hy {
     }
 
     // Returns amount of pages read
-    std::size_t process::mm_dump(const addr base, const buffer& buffer, dump_context* ctx) const {
+    std::size_t process::mm_dump(const addr base, const region& buffer, dump_context* ctx) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::deque<std::uintptr_t> page_queue;
         std::size_t pages_read = 0;
@@ -286,7 +285,7 @@ namespace hy {
         MEMORY_BASIC_INFORMATION mbi;
         auto time = std::chrono::system_clock::now();
 
-        for (std::uintptr_t addr = um_bounds.base(); addr < um_bounds.end(); ) {
+        for (std::uintptr_t addr = um_region.base(); addr < um_region.end(); ) {
             if (!mm_query(addr, mbi)) {
                 addr += page_size;
                 continue;
@@ -306,7 +305,7 @@ namespace hy {
                 continue;
             }
 
-            const auto dump = buffer::create(mbi.RegionSize);
+            const auto dump = region::alloc_local(mbi.RegionSize);
             if (mm_read(mbi.BaseAddress, dump)) {
                 for (const auto match : dump.scan_aob(pattern, mask)) {
                     const auto offset = match - dump.base();
@@ -332,7 +331,7 @@ namespace hy {
         return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
     }
 
-    std::size_t process::mm_write(const addr base, const buffer& buffer, std::size_t size) const {
+    std::size_t process::mm_write(const addr base, const region& buffer, std::size_t size) const {
         if (size == 0) size = buffer.size();
         if (size > buffer.size()) return 0;
 
@@ -343,7 +342,7 @@ namespace hy {
         return written;
     }
 
-    addr process::mm_inject(const buffer& source, const DWORD protect) const {
+    addr process::mm_inject(const region& source, const DWORD protect) const {
         const auto base = mm_alloc(nullptr, source.size(), MEM_COMMIT | MEM_RESERVE, protect);
         if (base == nullptr) return nullptr;
 

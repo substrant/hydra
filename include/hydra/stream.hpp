@@ -218,4 +218,9 @@ namespace hy {
             return derail<void>(offset, stream_origin::current, cb);
         }
     };
+
+    namespace detail {
+        template <typename T>
+        concept StreamLike = std::derived_from<T, stream> && !std::is_abstract_v<T>;
+    }
 }

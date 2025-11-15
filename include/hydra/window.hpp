@@ -1,6 +1,6 @@
 #pragma once
 
-#include <hydra/detail/pch.hpp>
+#include <phnt_windows.h>
 
 namespace hy {
     namespace detail {

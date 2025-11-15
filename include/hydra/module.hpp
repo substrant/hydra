@@ -1,7 +1,9 @@
 #pragma once
 
-#include <hydra/mem/core.hpp>
-#include <hydra/io/memory.hpp>
+#include <phnt_windows.h>
+#include <filesystem>
+
+#include <hydra/memory.hpp>
 
 namespace hy {
     // Forward-decl

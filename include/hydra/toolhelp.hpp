@@ -1,10 +1,15 @@
 #pragma once
 
-#include <hydra/detail/pch.hpp>
-#include <hydra/detail/th32decl.h>
+#include <phnt_windows.h>
+#include <phnt.h>
 
-#include <hydra/sys/handle.hpp>
-#include <hydra/detail/core.hpp>
+#include <functional>
+#include <optional>
+#include <memory>
+
+#include <hydra/detail.hpp>
+#include <hydra/handle.hpp>
+#include <hydra/decl/th32phnt.h>
 
 namespace hy::toolhelp {
     template <class SnapClass>
@@ -15,7 +20,7 @@ namespace hy::toolhelp {
 
     template <DWORD SnapFlags, class SnapClass, callback<SnapClass> QueryFirst, callback<SnapClass> QueryNext>
     detail::generator<SnapClass> scan(const DWORD pid, std::optional<predicate<SnapClass>> predicate = std::nullopt) {
-        const unique_handle<CloseHandle> handle{CreateToolhelp32Snapshot(SnapFlags, pid)};
+        const handle<CloseHandle> handle{CreateToolhelp32Snapshot(SnapFlags, pid)};
 
         SnapClass object;
         object.dwSize = sizeof(SnapClass);

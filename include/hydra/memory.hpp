@@ -9,6 +9,7 @@
 #include <phnt.h>
 
 #include "detail.hpp"
+#include "io/memory.hpp"
 
 namespace hy {
     struct addr;
@@ -218,7 +219,7 @@ namespace hy {
 
         /// Wraps an existing address as buffer.
         /// Buffer does not own memory.
-        region(const addr base, const std::size_t size = 0) : m_base(base.p), m_size(size), m_owner(false) { }
+        region(const addr base, const std::size_t size = 0) : m_base(base.p), m_size(size), m_owner(false) { } // NOLINT
 
         /// Wraps an array as buffer.
         /// Buffer does not own memory.
@@ -262,11 +263,11 @@ namespace hy {
 
         /// Checks if buffer is valid.
         /// Returns true if buffer has memory.
-        operator bool() const { return m_base != nullptr; }
+        operator bool() const { return m_base != nullptr; } // NOLINT
 
         /// Implicit conversion to addr.
         /// Returns base address as addr.
-        operator addr() const { return m_base; }
+        operator addr() const { return m_base; } // NOLINT
 
         /// Copy assignment for buffer.
         /// Buffer does not own memory.
@@ -294,23 +295,23 @@ namespace hy {
 
         /// Returns base address of buffer.
         /// Address of first byte.
-        addr base() const { return m_base; }
+        [[nodiscard]] addr base() const { return m_base; }
 
         /// Returns size of buffer.
         /// Number of bytes in buffer.
-        std::size_t size() const { return m_size; }
+        [[nodiscard]] std::size_t size() const { return m_size; }
 
         /// Returns end address of buffer.
         /// Address at last byte.
-        addr end() const { return m_base + m_size - 1; }
+        [[nodiscard]] addr end() const { return m_base + m_size - 1; }
 
         /// Checks if address is within buffer.
         /// Returns true if address is in range.
-        bool contains(const addr addr) const { return addr <= end(); }
+        [[nodiscard]] bool contains(const addr addr) const { return addr <= end(); }
 
         /// Rebase a virtual address to a new base.
         /// Returns rebased address.
-        addr rebase(const addr offset, const addr base = 0ull) const {
+        [[nodiscard]] addr rebase(const addr offset, const addr base = 0ull) const {
             return (offset - m_base) + base;
         }
 
@@ -383,9 +384,26 @@ namespace hy {
     /// Range: 0x8000000000000000 - 0xFFFFFFFFFFFFFFFF.
     static auto reg_kernel = region({ 0x8000000000000000ull, 0xFFFFFFFFFFFFFFFFull });
 
+    namespace detail {
+        /// Base class for implementing memory streams.
+        class mem_stream_impl : public stream {
+        protected:
+            explicit mem_stream_impl() = default;
+
+        public:
+            /// Get the base address of the underlying memory.
+            /// This is an abstract method to be implemented by derived classes.
+            [[nodiscard]] virtual addr base() const;
+
+            /// Seeks to specified position in stream.
+            /// Returns new position after seek.
+            std::size_t seek(std::int64_t offset, stream_origin origin) override;
+        };
+    }
+
     /// Memory-based stream implementation using hydra::buffer.
     /// Provides in-memory streaming operations.
-    class memory_stream final : public detail::mem_stream_impl {
+    class mem_stream final : public detail::mem_stream_impl {
     protected:
         region m_buffer;
 
@@ -398,20 +416,20 @@ namespace hy {
         std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
 
     public:
-        explicit memory_stream(const region& buffer) : m_buffer(buffer) { }
+        explicit mem_stream(const region& buffer) : m_buffer(buffer) { }
 
-        explicit memory_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
+        explicit mem_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
 
         // Destructor for memory_stream.
         /// Cleans up stream resources.
-        ~memory_stream() override = default;
+        ~mem_stream() override = default;
 
         /// Get the base address of the underlying memory.
         /// This memory is always local.
-        addr base() const override;
+        [[nodiscard]] addr base() const override;
 
         /// Gets the underlying buffer.
         /// Returns reference to internal buffer.
-        const region& buffer() const;
+        [[nodiscard]] const region& buffer() const;
     };
 }

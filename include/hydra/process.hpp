@@ -1,12 +1,13 @@
 #pragma once
 
-#include <hydra/detail/pch.hpp>
+#include <functional>
+#include <chrono>
 
-#include <hydra/mem/core.hpp>
-#include <hydra/mem/module.hpp>
-
-#include <hydra/sys/window.hpp>
-#include <hydra/sys/thread.hpp>
+#include <hydra/detail.hpp>
+#include <hydra/handle.hpp>
+#include <hydra/module.hpp>
+#include <hydra/thread.hpp>
+#include <hydra/window.hpp>
 
 namespace hy {
     // Forward-decl
@@ -28,8 +29,8 @@ namespace hy {
 
     class process : public detail::noncopyable, public std::enable_shared_from_this<process> {
         std::shared_ptr<process> m_this = nullptr;
-        unique_handle<CloseHandle> m_handle;
-
+        handle<CloseHandle> m_handle;
+        
         std::unordered_map<std::uintptr_t, std::shared_ptr<remote_module>> m_modules;
         std::vector<std::shared_ptr<remote_module>> m_module_list;
 
@@ -54,10 +55,10 @@ namespace hy {
         bool is_valid() const;
 
         // Implicit cast for HANDLE (get process handle)
-        operator HANDLE() const;
+        operator HANDLE() const; // NOLINT
 
         // Implicit cast for DWORD (get process ID)
-        operator DWORD() const;
+        operator DWORD() const; // NOLINT
 
         /* Execution functions */
 
@@ -81,17 +82,17 @@ namespace hy {
 
         /* Memory functions */
 
-        std::size_t mm_read(addr base, const buffer& buffer, std::size_t size = 0) const;
+        std::size_t mm_read(addr base, const region& buffer, std::size_t size = 0) const;
 
         DWORD mm_protect(addr base, std::size_t size, DWORD new_prot) const;
 
-        std::size_t mm_write(addr base, const buffer& buffer, std::size_t size = 0) const;
+        std::size_t mm_write(addr base, const region& buffer, std::size_t size = 0) const;
 
         bool mm_query(addr base, MEMORY_BASIC_INFORMATION& mbi) const;
 
-        detail::generator<MEMORY_BASIC_INFORMATION> mm_pages(const buffer& buffer) const;
+        detail::generator<MEMORY_BASIC_INFORMATION> mm_pages(const region& buffer) const;
 
-        std::size_t mm_dump(addr base, const buffer& buffer, dump_context* ctx) const;
+        std::size_t mm_dump(addr base, const region& buffer, dump_context* ctx) const;
 
         addr mm_alloc(addr base, std::size_t size, DWORD flags, DWORD protect) const;
 
@@ -99,7 +100,7 @@ namespace hy {
 
         addr mm_alloc(std::size_t size, DWORD protect) const;
 
-        addr mm_inject(const buffer& source, DWORD protect) const;
+        addr mm_inject(const region& buffer, DWORD protect) const;
 
         bool mm_free(addr base, DWORD flags = MEM_RELEASE) const;
 
@@ -144,4 +145,32 @@ namespace hy {
     };
 
     using page_cb = std::function<page_action(MEMORY_BASIC_INFORMATION&)>;
+
+    /// Memory-based stream implementation using hydra::process.
+    /// Provides in-memory streaming operations.
+    class remote_stream final : public detail::mem_stream_impl {
+    protected:
+        std::shared_ptr<process> m_proc;
+        addr m_base;
+
+        explicit remote_stream(const std::shared_ptr<process>& proc, const addr base)
+            : m_proc(proc), m_base(base) { }
+
+        /// Reads data from stream into buffer.
+        /// Returns number of bytes actually read.
+        std::size_t read_impl(std::uint8_t* base, std::size_t size) override;
+
+        /// Writes data from buffer to stream.
+        /// Returns number of bytes actually written.
+        std::size_t write_impl(std::uint8_t* base, std::size_t size) override;
+
+    public:
+        /// Destructor for memory_stream.
+        /// Cleans up stream resources.
+        ~remote_stream() override = default;
+
+        /// Get the base address of the underlying memory.
+        /// This memory is always remote.
+        addr base() const override;
+    };
 }

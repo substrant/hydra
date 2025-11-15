@@ -9,3 +9,10 @@ build/
 
 # Clangd cache
 .cache/
+
+# JetBrains IDEs
+.idea/
+
+# Backlog and archive
+/backlog/
+/archive/

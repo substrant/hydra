@@ -21,7 +21,7 @@ namespace hy {
     public:
         explicit thread(const DWORD id) : _handle(OpenThread(THREAD_ALL_ACCESS, FALSE, id)) { }
 
-        explicit thread(const HANDLE handle) : _handle(handle, true) { }
+        explicit thread(HANDLE handle) : _handle(handle, true) { }
 
         static std::shared_ptr<thread> from_handle(HANDLE handle) {
             const auto obj = std::make_shared<thread>(handle);

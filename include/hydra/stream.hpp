@@ -3,12 +3,10 @@
 #include <functional>
 #include <vector>
 
-#include "hydra/detail.hpp"
-#include "hydra/memory.hpp"
+#include <hydra/detail.hpp>
+#include <hydra/memory.hpp>
 
 namespace hy {
-    class region;
-
     /// Represents the origin position for a stream operation.
     /// Used for seeking within a stream.
     enum class stream_origin : std::uint8_t {
@@ -50,33 +48,23 @@ namespace hy {
 
         /// Reads data from stream into buffer without changing offset.
         /// Returns number of bytes actually read.
-        virtual std::size_t read(std::int8_t* base, std::size_t size);
+        virtual std::size_t read(std::int8_t* dst, std::size_t size) const = 0;
 
         /// Writes data from buffer to stream without changing offset.
         /// Returns number of bytes actually written.
-        virtual std::size_t write(std::int8_t* base, std::size_t size);
+        virtual std::size_t write(std::int8_t* src, std::size_t size) const = 0;
 
         /// Reads data from stream into buffer and advances offset.
         /// Returns number of bytes actually read.
-        std::size_t read(const region& buffer) {
-            const auto n_bytes = read(buffer.base(), buffer.size());
-            if (m_mode == stream_mode::relative)
-                m_offset += n_bytes;
-            return n_bytes;
-        }
+        std::size_t read(const region& dst);
 
         /// Writes data from buffer to stream and advances offset.
         /// Returns number of bytes actually written.
-        std::size_t write(const region& buffer) {
-            const auto n_bytes = write(buffer.base(), buffer.size());
-            if (m_mode == stream_mode::relative)
-                m_offset += n_bytes;
-            return n_bytes;
-        }
+        std::size_t write(const region& src);
 
         /// Seeks to specified position in stream.
         /// Returns new position after seek.
-        virtual std::size_t seek(std::int64_t offset, stream_origin origin);
+        virtual std::size_t seek(std::int64_t offset, stream_origin origin) = 0;
 
         /// Jump forwards/backwards by a specified number of bytes in stream.
         /// Returns new position after skipping.
@@ -223,4 +211,73 @@ namespace hy {
         template <typename T>
         concept StreamLike = std::derived_from<T, stream> && !std::is_abstract_v<T>;
     }
+
+    class memory_stream : public stream {
+    protected:
+        explicit memory_stream() = default;
+
+        /// Reads data from stream into buffer without changing offset.
+        /// Returns number of bytes actually read.
+        std::size_t read(std::int8_t* dst, std::size_t size) const override {
+            return 0;
+        }
+
+        /// Writes data from buffer to stream without changing offset.
+        /// Returns number of bytes actually written.
+        std::size_t write(std::int8_t* src, std::size_t size) const override {
+            return 0;
+        }
+
+    public:
+        /// Get the base address of the underlying memory.
+        /// This is an abstract method to be implemented by derived classes.
+        [[nodiscard]] virtual addr base() const;
+
+        /// Seeks to specified position in stream.
+        /// Returns new position after seek.
+        std::size_t seek(std::int64_t offset, stream_origin origin) override;
+    };
+
+    namespace detail {
+        template <typename T>
+        concept MemoryStreamLike = std::derived_from<T, memory_stream> && !std::is_abstract_v<T>;
+    }
+
+    /// Memory-based stream implementation using hydra::buffer.
+    /// Provides in-memory streaming operations.
+    class local_stream final : public memory_stream {
+    protected:
+        region m_buffer;
+
+    public:
+        HYDRA_INTERNAL("Use 'local_stream::from' to create local streams.")
+        explicit local_stream(const region& buffer) : m_buffer(buffer) { }
+
+        HYDRA_INTERNAL("Use 'local_stream::from' to create local streams.")
+        explicit local_stream(region&& buffer) : m_buffer(std::move(buffer)) { }
+
+        static std::shared_ptr<local_stream> from(const region& buffer) {
+            return std::make_shared<local_stream>(buffer);
+        }
+
+        static std::shared_ptr<local_stream> from(region&& buffer) {
+            return std::make_shared<local_stream>(std::move(buffer));
+        }
+
+        std::size_t read(std::int8_t* dest, std::size_t size) const override;
+
+        std::size_t write(std::int8_t* dest, std::size_t size) const override;
+
+        // Destructor for memory_stream.
+        /// Cleans up stream resources.
+        ~local_stream() override = default;
+
+        /// Get the base address of the underlying memory.
+        /// This memory is always local.
+        [[nodiscard]] addr base() const override;
+
+        /// Gets the underlying buffer.
+        /// Returns reference to internal buffer.
+        [[nodiscard]] const region& buffer() const;
+    };
 }

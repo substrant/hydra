@@ -6,6 +6,7 @@
 #include <functional>
 #include <optional>
 #include <memory>
+#include <generator>
 
 #include <hydra/detail.hpp>
 #include <hydra/handle.hpp>
@@ -19,7 +20,7 @@ namespace hy::toolhelp {
     using predicate = std::function<bool(SnapClass)>;
 
     template <DWORD SnapFlags, class SnapClass, callback<SnapClass> QueryFirst, callback<SnapClass> QueryNext>
-    detail::generator<SnapClass> scan(const DWORD pid, std::optional<predicate<SnapClass>> predicate = std::nullopt) {
+    std::generator<SnapClass> scan(const DWORD pid, std::optional<predicate<SnapClass>> predicate = std::nullopt) {
         const handle<CloseHandle> handle{CreateToolhelp32Snapshot(SnapFlags, pid)};
 
         SnapClass object;

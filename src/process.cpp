@@ -11,13 +11,63 @@
 namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;
 
-    void process::init() {
-        if (!m_handle.is_valid())
-            throw std::runtime_error("Invalid handle provided");
-        m_this = shared_from_this();
+    std::shared_ptr<process> process::init() {
+        if (!m_handle.is_valid()) throw std::runtime_error("Invalid handle provided");
+        return m_this = shared_from_this();
     }
 
-    bool process::scan_linked_modules() {
+    std::shared_ptr<process> process::open(const HANDLE handle) {
+        OBJECT_BASIC_INFORMATION info{};
+        DWORD info_written;
+
+        if (!NT_SUCCESS(NtQueryObject(
+            handle,
+            ObjectBasicInformation,
+            &info,
+            sizeof(info),
+            &info_written
+        )) || info_written != sizeof(info)) return nullptr;
+
+        const auto proc = std::make_shared<detail::ctor_shim<process>>(handle, info.GrantedAccess, true);
+        return proc->init();
+    }
+
+    std::shared_ptr<process> process::open(const DWORD id, const DWORD access) {
+        HANDLE h_proc;
+
+        CLIENT_ID cid;
+        cid.UniqueProcess = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(id)); // shitty microsoft design 420
+        cid.UniqueThread = nullptr;
+
+        OBJECT_ATTRIBUTES attr;
+        InitializeObjectAttributes(&attr, nullptr, 0, nullptr, nullptr);
+
+        // Obtain handle to process using NTAPI
+        if (!NT_SUCCESS(NtOpenProcess(&h_proc, access, &attr, &cid)))
+            return nullptr;
+
+        return open(h_proc);
+    }
+
+    std::shared_ptr<process> process::open(const std::string_view name, const DWORD access) {
+        for (const auto& entry : toolhelp::get_processes()) {
+            if (entry.szExeFile == name)
+                return open(entry.th32ProcessID, access);
+        }
+
+        return nullptr;
+    }
+
+    PROCESS_BASIC_INFORMATION process::get_info() const {
+        PROCESS_BASIC_INFORMATION pbi{};
+
+        // Ignore response we zero out
+        NtQueryInformationProcess(m_handle, ProcessBasicInformation, &pbi, sizeof(pbi), nullptr);
+
+        return pbi;
+    }
+
+    bool process::eumerate_modules() {
         constexpr auto max_modules = 2048u;
         const auto modules_raw = std::make_unique<HMODULE[]>(max_modules);
 
@@ -30,8 +80,8 @@ namespace hy {
 
         const auto module_count = modules_bytes / sizeof(HMODULE);
 
-        char path_buf[MAX_PATH];
-        char name_buf[MAX_PATH];
+        char path_buf[MAX_PATH + 1]{};
+        char name_buf[MAX_PATH + 1]{};
 
         DWORD path_len;
         DWORD name_len;
@@ -48,18 +98,21 @@ namespace hy {
                 continue;
 
             // Get the path of the module
-            if ((path_len = GetModuleFileNameExA(m_handle, module_handle, path_buf, sizeof(path_buf))) == 0)
+            if ((path_len = GetModuleFileNameExA(m_handle, module_handle, path_buf, MAX_PATH)) == 0)
                 continue;
 
             // Get the module name only (strip path)
-            if ((name_len = GetModuleBaseNameA(m_handle, module_handle, name_buf, sizeof(name_buf))) == 0)
+            if ((name_len = GetModuleBaseNameA(m_handle, module_handle, name_buf, MAX_PATH)) == 0)
                 continue;
 
             // Prepare information
-            const auto path = std::string(path_buf, path_len);
-            const auto name = std::string(name_buf, name_len);
             const auto base = reinterpret_cast<std::uintptr_t>(module_info.lpBaseOfDll);
-            const auto ptr = remote_module::from_header(m_this, base, name, path);
+            const auto ptr = remote_module::from_header(
+                m_this,
+                base,
+                std::string(name_buf, name_len),
+                std::string(path_buf, path_len)
+            );
 
             // Push module to list and dict
             m_module_list.push_back(ptr);
@@ -67,38 +120,6 @@ namespace hy {
         }
 
         return !m_module_list.empty();
-    }
-
-    std::shared_ptr<process> process::open(const HANDLE handle) {
-        std::shared_ptr<process> proc(new process(handle, true));
-        proc->init();
-        return proc;
-    }
-
-    std::shared_ptr<process> process::open(const DWORD id) {
-        std::shared_ptr<process> proc(new process(OpenProcess(PROCESS_ALL_ACCESS, FALSE, id)));
-        proc->init();
-        return proc;
-    }
-
-    std::shared_ptr<process> process::open(const std::string_view name) {
-        for (const auto entry : toolhelp::get_processes()) {
-            if (entry.szExeFile == name)
-                return open(entry.th32ProcessID);
-        }
-        return nullptr;
-    }
-
-    bool process::is_valid() const {
-        return m_handle.is_valid();
-    }
-
-    process::operator HANDLE() const {
-        return m_handle;
-    }
-
-    process::operator DWORD() const {
-        return m_handle.is_valid() ? GetProcessId(m_handle) : -1;
     }
 
     bool process::kill(const LONG exit_code, NTSTATUS* p_status) {
@@ -111,34 +132,32 @@ namespace hy {
         return NT_SUCCESS(*p_status);
     }
 
-    detail::generator<std::shared_ptr<thread>> process::threads() const {
+    std::generator<std::shared_ptr<thread>> process::threads() const {
         for (const auto&& entry : toolhelp::get_threads(*this))
             co_yield std::shared_ptr(thread::from_id(entry.th32ThreadID));
     }
 
-    void process::suspend() const {
-        for (auto&& thread : threads())
-            thread->suspend();
+    bool process::suspend() const {
+        return NT_SUCCESS(NtSuspendProcess(m_handle));
     }
 
-    void process::resume() const {
-        for (auto&& thread : threads())
-            thread->resume();
+    bool process::resume() const {
+        return NT_SUCCESS(NtResumeProcess(m_handle));
     }
 
-    detail::generator<std::shared_ptr<remote_module>> process::linked_modules() {
-        if (m_modules.empty() && !scan_linked_modules())
+    std::generator<std::shared_ptr<remote_module>> process::linked_modules() {
+        if (m_modules.empty() && !eumerate_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
-        for (auto&& v : m_modules | std::views::values)
+        for (auto&& v : m_module_list)
             co_yield v;
     }
 
-    detail::generator<std::shared_ptr<remote_module>> process::unlinked_modules() {
+    std::generator<std::shared_ptr<remote_module>> process::unlinked_modules() {
         std::unordered_set<void*> linked_bases;
 
         // Scan for linked modules
-        if (m_modules.empty() && !scan_linked_modules())
+        if (m_modules.empty() && !eumerate_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
         // Allocate space and fill bases
@@ -160,13 +179,13 @@ namespace hy {
                 continue;
 
             // This is an unlinked module
-            co_yield remote_module::from_header(m_this, mbi.BaseAddress, "unknown");
+            co_yield remote_module::from_header(m_this, mbi.BaseAddress);
         }
     }
 
     std::shared_ptr<remote_module> process::module(const std::optional<std::string>& name) {
         // Scan for linked modules
-        if (m_modules.empty() && !scan_linked_modules())
+        if (m_modules.empty() && !eumerate_modules())
             throw std::runtime_error("Failed to enumerate linked modules");
 
         if (name == std::nullopt)
@@ -199,7 +218,7 @@ namespace hy {
         return VirtualQueryEx(m_handle, base, &mbi, sizeof(mbi));
     }
 
-    detail::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const region& buffer) const {
+    std::generator<MEMORY_BASIC_INFORMATION> process::mm_pages(const region& buffer) const {
         MEMORY_BASIC_INFORMATION mbi;
         std::uintptr_t at = buffer.base();
 
@@ -214,73 +233,62 @@ namespace hy {
         return VirtualProtectEx(m_handle, base, size, new_prot, &old_prot) ? new_prot : 0;
     }
 
-    // Returns amount of pages read
-    std::size_t process::mm_dump(const addr base, const region& buffer, dump_context* ctx) const {
-        MEMORY_BASIC_INFORMATION mbi;
-        std::deque<std::uintptr_t> page_queue;
-        std::size_t pages_read = 0;
-
-        // Fill buffer range with sentinel byte
-        std::memset(buffer.base(), ctx->sentinel, buffer.size());
-
-        // Helper function to read page and track progress
-        const auto read_page = [&](const std::uintptr_t va) -> bool {
-            const auto offset = va - base.i;
-            const auto success = mm_read(va, buffer.base() + offset, page_size);
-
-            if (success) pages_read++;
-            return success;
-        };
-
-        // Helper function for status reports
-        auto last_tick = hw_clock::now();
-        const auto signal_report = [&]() -> void {
-            const auto current_tick = hw_clock::now();
-            if (current_tick - last_tick < std::chrono::milliseconds(100))
-                return;
-
-            if (ctx->callback) (*ctx->callback)(ctx, pages_read);
-            last_tick = current_tick;
-        };
-
-        const auto end_address = base + buffer.size();
-
-        // Phase 1:
-        //   Go through each page in the region and attempt to read
-        //   If we can't read the page, queue it for the 2nd phase
-        for (std::uintptr_t page_base = base; page_base < end_address; page_base += page_size) {
-            if (!mm_query(page_base, mbi)) {
-                // Skip page
-                continue;
-            }
-            
-            // if NOACCESS or we cannot read the page, queue it
-            if (mbi.Protect & PAGE_NOACCESS || !read_page(page_base))
-                page_queue.push_back(page_base);
-        }
-
-        // Phase 2:
-        //   Loop queue until all pages are able to be read or adr
-        //   cancellation is requested
-        while (!page_queue.empty() && !ctx->stop) {
-            signal_report();
-
-            auto page = page_queue.front();
-            page_queue.pop_front();
-
-            if (!read_page(page)) {
-                // Requeue after querying the other pages
-                page_queue.push_back(page);
-            }
-        }
-
-        // Revert stop flag if set
-        ctx->stop = false;
-
-        return pages_read;
+    addr process::mm_alloc(addr base, std::size_t size, const DWORD flags, const DWORD protect) const {
+        return NT_SUCCESS(NtAllocateVirtualMemory(
+            m_handle,
+            &base.u,
+            0, // Anywhere in user VA space
+            &size,
+            flags,
+            protect
+        )) ? base : nullptr;
     }
 
-    std::vector<addr> process::scan_heap(const std::uint8_t* pattern, const char* mask) const {
+    addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
+        return mm_alloc(nullptr, size, flags, protect);
+    }
+
+    addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
+        return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
+    }
+
+    std::size_t process::mm_write(const addr base, const region& buffer, std::size_t size) const {
+        if (size == 0) size = buffer.size();
+        if (size > buffer.size()) return 0;
+
+        SIZE_T written;
+        return NT_SUCCESS(NtWriteVirtualMemory(
+            m_handle,
+            base,
+            buffer.base(),
+            size,
+            &written)
+        ) ? written : 0;
+    }
+
+    bool process::mm_free(const addr base) const {
+        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, base, nullptr, MEM_RELEASE));
+    }
+
+    bool process::mm_decommit(const region& region) const {
+        SIZE_T size = region.size();
+        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, region.base(), &size, MEM_DECOMMIT));
+    }
+
+    addr process::mm_inject(const region& buffer, const DWORD protect) const {
+        const auto base = mm_alloc(nullptr, buffer.size(), MEM_COMMIT | MEM_RESERVE, protect);
+        if (base == nullptr) return nullptr;
+
+        if (!mm_write(base, buffer)) {
+            (void)mm_free(base);
+            return nullptr;
+        }
+
+        return base;
+    }
+
+    // todo: might not be the best spot to put this. perhaps make a memory manager class?
+    std::vector<addr> process::mm_heapscan(const std::uint8_t* pattern, const char* mask) const {
         std::vector<addr> results;
         MEMORY_BASIC_INFORMATION mbi;
         auto time = std::chrono::system_clock::now();
@@ -317,83 +325,5 @@ namespace hy {
         }
 
         return results;
-    }
-
-    addr process::mm_alloc(const addr base, const std::size_t size, const DWORD flags, const DWORD protect) const {
-        return VirtualAllocEx(m_handle, base, size, flags, protect);
-    }
-
-    addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
-        return mm_alloc(nullptr, size, flags, protect);
-    }
-
-    addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
-        return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
-    }
-
-    std::size_t process::mm_write(const addr base, const region& buffer, std::size_t size) const {
-        if (size == 0) size = buffer.size();
-        if (size > buffer.size()) return 0;
-
-        SIZE_T written;
-        if (!WriteProcessMemory(m_handle, base, buffer.base(), size, &written))
-            return 0;
-
-        return written;
-    }
-
-    addr process::mm_inject(const region& source, const DWORD protect) const {
-        const auto base = mm_alloc(nullptr, source.size(), MEM_COMMIT | MEM_RESERVE, protect);
-        if (base == nullptr) return nullptr;
-
-        if (!mm_write(base, source)) {
-            (void)mm_free(base);
-            return nullptr;
-        }
-
-        return base;
-    }
-
-    bool process::mm_free(const addr base, const DWORD flags) const {
-        return VirtualFreeEx(m_handle, base, 0, flags);
-    }
-
-    map_status process::pe_mmap(pe_image& pe, mapping_info* info_out) const {
-        // Allocate memory in the target process for the module
-        info_out->size = pe.size(pe_size::mapped);
-        info_out->header_size = pe.size(pe_size::header);
-        info_out->base = mm_alloc(info_out->size, PAGE_EXECUTE_READWRITE);
-
-        if (info_out->base == nullptr) {
-            //std::cout << "[-] Failed to allocate memory in target process.\n";
-            return map_status::failed_allocation;
-        }
-
-        //std::cout << "[+] Base Address: 0x" << std::hex << info_out->base << "\n";
-
-        // Copy header information to the target process
-        //if (!mm_write(info_out->base, pe.m_stream, info_out->header_size))
-        //    return map_status::failed_write;
-
-        // Write sections to the target process
-        for (const auto& section : pe.sections()) {
-            const auto section_size = section->size();
-
-            // Skip empty sections
-            if (section_size < 1) continue;
-
-            // Calculate the destination in the target process
-            const auto dest_address = reinterpret_cast<std::uintptr_t>(info_out->base) + section->raw()->VirtualAddress;
-
-            // Write the section data to the target process
-            if (!mm_write(dest_address, pe.m_stream.base() + section->raw()->PointerToRawData, section_size)) {
-                //std::cout << "[-] Failed to write section to target process.\n";
-                return map_status::failed_write;
-            }
-
-           // std::cout << "[+] Mapped " << section->name() << " => 0x" << std::hex << dest_address << " (" << std::dec << section_size << " bytes)\n";
-        }
-
-        return map_status::success;
     }
 }

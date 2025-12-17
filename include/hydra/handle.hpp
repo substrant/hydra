@@ -26,7 +26,7 @@ namespace hy {
         bool m_owner = false;
 
     protected:
-        constexpr bool _close() {
+        constexpr bool close_internal() {
             if constexpr (std::is_same_v<std::invoke_result_t<decltype(CloseFn), type>, void>) {
                 std::invoke(CloseFn, m_handle);
                 return true;
@@ -41,7 +41,7 @@ namespace hy {
 
         handle& operator=(const type handle) {
             // Close old handle
-            if (is_valid()) _close();
+            if (is_valid()) close_internal();
 
             // Set new handle
             m_handle = handle;
@@ -60,7 +60,7 @@ namespace hy {
             if (!is_valid())
                 return false;
 
-            const bool success = m_owner ? _close() : true;
+            const bool success = m_owner ? close_internal() : true;
             if (success) m_handle = nullptr;
 
             return success;

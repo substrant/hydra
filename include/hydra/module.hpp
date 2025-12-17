@@ -4,11 +4,12 @@
 #include <filesystem>
 
 #include <hydra/memory.hpp>
+#include <hydra/stream.hpp>
+#include <hydra/remote_stream.hpp>
 
 namespace hy {
     // Forward-decl
     class process;
-    struct dump_context;
     class pe_section;
 
     // status > 0 = yay
@@ -32,7 +33,7 @@ namespace hy {
         friend class process;
 
     protected:
-        memory_stream m_stream;
+        std::shared_ptr<memory_stream> m_stream;
 
         IMAGE_DOS_HEADER m_dos_header{};
         IMAGE_NT_HEADERS m_nt_headers{};
@@ -40,7 +41,8 @@ namespace hy {
         std::unordered_map<std::string, std::shared_ptr<pe_section>> m_sections_map{};
         std::vector<std::shared_ptr<pe_section>> m_sections_lst{};
 
-        explicit pe_image(memory_stream stm) : m_stream(std::move(stm)) { }
+        HYDRA_INTERNAL("Use 'pe_image::load' to load PE images.")
+        explicit pe_image(std::shared_ptr<memory_stream> stm) : m_stream(std::move(stm)) { }
 
     public:
         explicit operator PIMAGE_DOS_HEADER() { return &m_dos_header; }
@@ -51,16 +53,15 @@ namespace hy {
 
         static pe_image load(const std::filesystem::path& path);
 
-        static pe_image load(const memory_stream& stm) { return pe_image(stm); }
+        static pe_image load(std::shared_ptr<memory_stream> stm) { return pe_image(std::move(stm)); }
 
         static pe_image load_base(addr base);
 
-        pe_status read();
+        pe_status read_header();
 
         std::string file_type() const;
 
         std::vector<std::shared_ptr<pe_section>>& sections() { return m_sections_lst; }
-
         std::shared_ptr<pe_section> section(std::string_view target_name) const;
 
         std::size_t size(pe_size size_type = pe_size::file) const;
@@ -71,25 +72,27 @@ namespace hy {
     class remote_module : public pe_image {
         std::shared_ptr<process> m_proc;
         addr m_base;
-        std::string m_name;
+        std::optional<std::string> m_name; // just assume if name is nullopt then path is unknown
         std::filesystem::path m_path;
 
-    protected:
-        explicit remote_module(memory_stream& stm, std::shared_ptr<process> proc, std::string name, std::filesystem::path path = {})
-            : pe_image(std::move(stm)), m_proc(std::move(proc)), m_base(m_stream.base()), m_name(std::move(name)), m_path(std::move(path)) { }
-
     public:
-        static std::shared_ptr<remote_module> from_header(const std::shared_ptr<process> &proc, addr base, const std::string &name, const std::filesystem::path &path = {});
+        HYDRA_INTERNAL("Use 'remote_module::from_header' or 'remote_module::from_remote' to create remote modules.")
+        explicit remote_module(const std::shared_ptr<remote_stream>& stm, std::shared_ptr<process> proc, std::optional<std::string> name = std::nullopt, std::filesystem::path path = {})
+            : pe_image(stm), m_proc(std::move(proc)), m_base(stm->base()), m_name(std::move(name)), m_path(std::move(path)) { }
+
+        static std::shared_ptr<remote_module> from_header(const std::shared_ptr<process>& proc, addr base, const std::optional<std::string>& name = std::nullopt, std::filesystem::path path = {});
 
         static std::shared_ptr<remote_module> from_remote(const std::shared_ptr<process>& proc, addr base);
-
+        
         std::shared_ptr<process> proc() const { return m_proc; }
+
+        [[nodiscard]] addr base() const { return m_base; }
 
         [[nodiscard]] region buffer() const { return { m_base, size(pe_size::mapped) }; }
 
         //bool dump_image(const hy::buffer& buffer, dump_context* ctx);
 
-        std::string_view file_name() const { return m_name; }
+        std::string file_name() const { return m_name.value_or("<unknown>"); }
 
         std::filesystem::path file_path() const { return m_path; }
     };
@@ -128,11 +131,5 @@ namespace hy {
             const auto mod = module();
             return mod ? m_header.Misc.VirtualSize : m_header.SizeOfRawData;
         }
-    };
-
-    enum class map_status : int {
-        success,
-        failed_allocation,
-        failed_write
     };
 }

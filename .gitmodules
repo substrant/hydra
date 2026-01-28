@@ -1,0 +1,7 @@
+[submodule "dependencies/zydis"]
+	path = dependencies/zydis
+	url = git@github.com:zyantafic/zydis
+    branch = v4.1.1
+[submodule "dependencies/phnt"]
+	path = dependencies/phnt
+	url = git@github.com:winsiderss/phnt.git

@@ -1,0 +1,18 @@
+# Project files related to our build system
+build/
+
+# Visual Studio files
+.vs/
+*.user
+*.filters
+*.suo
+
+# Clangd cache
+.cache/
+
+# JetBrains IDEs
+.idea/
+
+# Backlog and archive
+/backlog/
+/archive/

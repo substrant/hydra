@@ -228,8 +228,8 @@ namespace hy {
         )) ? old_prot : 0;
     }
 
-    addr process::mm_alloc(addr base, std::size_t size, const DWORD flags, const DWORD protect) const {
-        if (!(m_access & PROCESS_VM_OPERATION)) return nullptr;
+    std::optional<region> process::mm_alloc(addr base, std::size_t size, const DWORD flags, const DWORD protect) const {
+        if (!(m_access & PROCESS_VM_OPERATION)) return std::nullopt;
         return NT_SUCCESS(NtAllocateVirtualMemory(
             m_handle,
             &base.u,
@@ -237,45 +237,55 @@ namespace hy {
             &size,
             flags,
             protect
-        )) ? base : nullptr;
+        )) ? std::make_optional<region>(base, size) : std::nullopt;
     }
 
-    addr process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
+    std::optional<region> process::mm_alloc(const std::size_t size, const DWORD flags, const DWORD protect) const {
         return mm_alloc(nullptr, size, flags, protect);
     }
 
-    addr process::mm_alloc(const std::size_t size, const DWORD protect) const {
+    std::optional<region> process::mm_alloc(const std::size_t size, const DWORD protect) const {
         return mm_alloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, protect);
     }
 
     std::size_t process::mm_write(const addr base, const region& buffer, std::size_t size) const {
-        if (size == 0) size = buffer.size();
-        if (size > buffer.size()) return 0;
-        if (!(m_access & PROCESS_VM_WRITE) || !(m_access & PROCESS_VM_OPERATION)) return 0;
+        if (size == 0)
+            size = buffer.size();
+
+        if (buffer.size() != 0 && size > buffer.size())
+            return 0;
+
+        if (!(m_access & PROCESS_VM_WRITE) || !(m_access & PROCESS_VM_OPERATION))
+            return 0;
 
         SIZE_T written;
-        return NT_SUCCESS(NtWriteVirtualMemory(
+        NTSTATUS status = NtWriteVirtualMemory(
             m_handle,
             base,
             buffer.base(),
             size,
-            &written)
-        ) ? written : 0;
+            &written);
+
+        return NT_SUCCESS(status) ? written : 0;
     }
 
     bool process::mm_free(const addr base) const {
         if (!(m_access & PROCESS_VM_OPERATION)) return false;
-        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, base, nullptr, MEM_RELEASE));
+
+        SIZE_T size = 0;
+        const auto status = NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&base.u), &size, MEM_RELEASE);
+
+        return NT_SUCCESS(status);
     }
 
     bool process::mm_decommit(const region& region) const {
         SIZE_T size = region.size();
-        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, region.base(), &size, MEM_DECOMMIT));
+        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&region.m_base.u), &size, MEM_DECOMMIT));
     }
 
     addr process::mm_inject(const region& buffer, const DWORD protect) const {
-        const auto base = mm_alloc(nullptr, buffer.size(), MEM_COMMIT | MEM_RESERVE, protect);
-        if (base == nullptr) return nullptr;
+        const auto base = mm_alloc(nullptr, buffer.size(), MEM_COMMIT | MEM_RESERVE, protect).value_or({ nullptr });
+        if (base.base() == nullptr) return nullptr;
 
         if (!mm_write(base, buffer)) {
             (void)mm_free(base);

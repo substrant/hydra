@@ -1,5 +1,6 @@
 # Project files related to our build system
 build/
+out/
 
 # Visual Studio files
 .vs/
@@ -16,3 +17,8 @@ build/
 # Backlog and archive
 /backlog/
 /archive/
+
+# Tests and experimental features.
+# Left out for release
+/tests/
+/experiments/

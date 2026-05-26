@@ -92,30 +92,34 @@ namespace hy {
 
         /* Low-level memory management */
 
-        std::size_t mm_read(addr base, const region& buffer, std::size_t size = 0) const;
+        [[nodiscard]] std::size_t mm_read(addr base, const region& buffer, std::size_t size = 0) const;
 
+        [[nodiscard]] std::size_t mm_read(const addr base, void* buffer, std::size_t size) const {
+            return mm_read(base, { buffer, size });
+        }
+        
         DWORD mm_protect(addr base, std::size_t size, DWORD new_prot) const;
 
-        std::size_t mm_write(addr base, const region& buffer, std::size_t size = 0) const;
+        [[nodiscard]] std::size_t mm_write(addr base, const region& buffer, std::size_t size = 0) const;
 
-        bool mm_query(addr base, MEMORY_BASIC_INFORMATION& mbi) const;
+        [[nodiscard]] bool mm_query(addr base, MEMORY_BASIC_INFORMATION& mbi) const;
 
-        std::generator<MEMORY_BASIC_INFORMATION> mm_regions(const region& buffer) const;
+        [[nodiscard]] std::generator<MEMORY_BASIC_INFORMATION> mm_regions(const region& buffer) const;
 
-        addr mm_alloc(addr base, std::size_t size, DWORD flags, DWORD protect) const;
+        [[nodiscard]] std::optional<region> mm_alloc(addr base, std::size_t size, DWORD flags, DWORD protect) const;
 
-        addr mm_alloc(std::size_t size, DWORD flags, DWORD protect) const;
+        [[nodiscard]] std::optional<region> mm_alloc(std::size_t size, DWORD flags, DWORD protect) const;
 
-        addr mm_alloc(std::size_t size, DWORD protect) const;
+        [[nodiscard]] std::optional<region> mm_alloc(std::size_t size, DWORD protect) const;
 
-        bool mm_free(addr base) const;
+        [[nodiscard]] bool mm_free(addr base) const;
 
-        bool mm_decommit(const region& region) const;
+        [[nodiscard]] bool mm_decommit(const region& region) const;
 
         /* Advanced memory management */
 
-        addr mm_inject(const region& buffer, DWORD protect) const;
+        [[nodiscard]] addr mm_inject(const region& buffer, DWORD protect) const;
 
-        std::vector<addr> mm_heapscan(const std::uint8_t* pattern, const char* mask) const;
+        [[nodiscard]] std::vector<addr> mm_heapscan(const std::uint8_t* pattern, const char* mask) const;
     };
 }

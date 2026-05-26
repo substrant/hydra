@@ -47,6 +47,10 @@ namespace hy {
         }
     }
 
+    addr pe_section::base() const {
+        return m_image->base() + offset(pe_source::inherit);
+    }
+
     region pe_section::buffer(const pe_source source) const {
         if (!m_image) throw std::runtime_error("section not bound to image");
         return { m_image->base() + offset(source), size(source) };
@@ -74,7 +78,7 @@ namespace hy {
         LONG nt_offset, sections_offset;
 
         // Pull and validate the DOS header
-        if (scope & pe_scope::dos_header) {
+        if (static_cast<bool>(scope & pe_scope::dos_header)) {
             if (m_stream->read_obj(m_dos_header) != sizeof(IMAGE_DOS_HEADER))
                 return pe_status::buffer_too_small;
 
@@ -82,8 +86,8 @@ namespace hy {
                 return pe_status::bad_dos_signature;
         }
 
-        if (scope & pe_scope::nt_headers) {
-            if (!(scope & pe_scope::dos_header))
+        if (static_cast<bool>(scope & pe_scope::nt_headers)) {
+            if (!static_cast<bool>(scope & pe_scope::dos_header))
                 throw std::runtime_error("can't read NT headers without DOS information");
 
             // Exract the NT offset
@@ -101,11 +105,11 @@ namespace hy {
                 return pe_status::bad_nt_signature;
         }
 
-        if (scope & pe_scope::sections) { // todo: prob better way to handle 'scopes' because each depends on the other but we need to suppoprt scopes still so we can choose what to write back
-            if (!(scope & pe_scope::dos_header))
+        if (static_cast<bool>(scope & pe_scope::sections)) { // todo: prob better way to handle 'scopes' because each depends on the other but we need to suppoprt scopes still so we can choose what to write back
+            if (!static_cast<bool>(scope & pe_scope::dos_header))
                 throw std::runtime_error("can't read sections without DOS information");
 
-            if (!(scope & pe_scope::nt_headers))
+            if (!static_cast<bool>(scope & pe_scope::nt_headers))
                 throw std::runtime_error("can't read sections without NT headers information");
 
             // Get section infomration
@@ -173,40 +177,85 @@ namespace hy {
         return max_end;
     }
 
-    addr pe_image::import(const std::string_view symbol) const {
-        // Get the data directory for imports
-        const auto& import_dir = m_nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-        if (import_dir.Size == 0 || import_dir.VirtualAddress == 0) {
-            return nullptr; // No import directory
+    addr pe_image::resolve_rva(const DWORD rva, const pe_source source) const {
+        if (source == pe_source::inherit)
+            throw std::exception("no");
+
+        if (source == pe_source::mapped || source == pe_source::header)
+            return base() + rva;
+
+        const auto secs = sections();
+
+        if (!secs.empty() && rva < secs.front()->raw()->VirtualAddress)
+            return base() + rva;
+
+        for (const auto* sec : secs) {
+            const auto va = sec->raw()->VirtualAddress;
+            const auto vsize = sec->raw()->Misc.VirtualSize;
+
+            if (rva >= va && rva < va + vsize)
+                return base() + sec->raw()->PointerToRawData + (rva - va);
         }
 
-        const addr base_addr = m_stream->base();
-        const auto import_descriptor = base_addr + import_dir.VirtualAddress;
-        
-        // TODO: some day refactor this shit to use new methods introduced to pe_iomage. If it aint broke dont fix it
+        return nullptr;
+    }
 
-        // Walk through each imported DLL
-        for (auto descriptor = static_cast<PIMAGE_IMPORT_DESCRIPTOR>(import_descriptor); descriptor->Name != 0; descriptor++) {
-            const auto thunk = static_cast<PIMAGE_THUNK_DATA>(base_addr + descriptor->FirstThunk);
-            auto orig_thunk = static_cast<PIMAGE_THUNK_DATA>(base_addr + descriptor->OriginalFirstThunk);
-            
-            // Default original thunk to the first think in the list
-            if (descriptor->OriginalFirstThunk == 0) orig_thunk = thunk;
-            
-            // Walk through all imported functions for this DLL
+    addr pe_image::internal_get_import(const std::string_view symbol, const pe_source source, pe_location loc) const {
+        const auto src = canonical_source(source, this);
+        const auto& import_dir = m_nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+        if (import_dir.Size == 0 || import_dir.VirtualAddress == 0)
+            return nullptr;
+
+        const auto import_descriptor = static_cast<PIMAGE_IMPORT_DESCRIPTOR>(resolve_rva(import_dir.VirtualAddress, src));
+        if (!import_descriptor) return nullptr;
+
+        // TODO: some day refactor this shit to use new methods introduced to pe_image. If it aint broke dont fix it
+
+        for (auto descriptor = import_descriptor; descriptor->Name != 0; descriptor++) {
+            const auto thunk = static_cast<PIMAGE_THUNK_DATA>(resolve_rva(descriptor->FirstThunk, src));
+            const auto orig_thunk = static_cast<PIMAGE_THUNK_DATA>(
+                descriptor->OriginalFirstThunk
+                ? resolve_rva(descriptor->OriginalFirstThunk, src)
+                : resolve_rva(descriptor->FirstThunk, src)
+            );
+
             for (SIZE_T i = 0; orig_thunk[i].u1.AddressOfData != 0; i++) {
-                // Check if this is an ordinal import because we can't compare ordinals with string symbols
                 if (IMAGE_SNAP_BY_ORDINAL(orig_thunk[i].u1.Ordinal)) continue;
 
-                const auto import_by_name = static_cast<PIMAGE_IMPORT_BY_NAME>(base_addr + orig_thunk[i].u1.AddressOfData);
-
-                // Check if this is the symbol we're looking for
+                const auto import_by_name = static_cast<PIMAGE_IMPORT_BY_NAME>(resolve_rva(static_cast<DWORD>(orig_thunk[i].u1.AddressOfData), src));
                 const std::string_view current_symbol = import_by_name->Name;
-                if (current_symbol == symbol) return { &thunk[i].u1.Function };
+                if (current_symbol == symbol) {
+                    const addr offset{ &thunk[i].u1.Function };
+                    return loc == pe_location::absolute ? base() + offset : offset;
+                }
             }
         }
-        
-        // Symbol not found
+
+        return nullptr;
+    }
+
+    addr pe_image::internal_get_export(const std::string_view symbol, const pe_source source, const pe_location loc) const {
+        const auto src = canonical_source(source, this);
+        const auto& export_dir_entry = m_nt_headers.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+        if (export_dir_entry.Size == 0 || export_dir_entry.VirtualAddress == 0)
+            return nullptr;
+
+        const auto export_dir = static_cast<PIMAGE_EXPORT_DIRECTORY>(resolve_rva(export_dir_entry.VirtualAddress, src));
+        if (!export_dir) return nullptr;
+
+        const auto names = static_cast<PDWORD>(resolve_rva(export_dir->AddressOfNames, src));
+        const auto ordinals = static_cast<PWORD>(resolve_rva(export_dir->AddressOfNameOrdinals, src));
+        const auto functions = static_cast<PDWORD>(resolve_rva(export_dir->AddressOfFunctions, src));
+
+        for (DWORD i = 0; i < export_dir->NumberOfNames; i++) {
+            const std::string_view current_symbol = static_cast<char*>(resolve_rva(names[i], src));
+            if (current_symbol != symbol) continue;
+
+            // Return virtual address: base() + RVA (works for both file and mapped sources)
+            const addr offset{ static_cast<std::uintptr_t>(functions[ordinals[i]]) };
+            return loc == pe_location::absolute ? base() + offset : offset;
+        }
+
         return nullptr;
     }
 

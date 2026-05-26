@@ -40,7 +40,6 @@ set_target_properties(Substrant.Hydra PROPERTIES
     CXX_STANDARD 23
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
-    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL"
 )
 
 target_compile_definitions(Substrant.Hydra PRIVATE

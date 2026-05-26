@@ -34,6 +34,11 @@ namespace hy {
         file
     };
 
+    enum class pe_location : std::uint8_t {
+        relative,
+        absolute
+    };
+
     // what to read/write from the stream
     enum class pe_scope : std::uint8_t {
         dos_header = 1,
@@ -64,11 +69,13 @@ namespace hy {
         IMAGE_SECTION_HEADER m_header;
 
     public:
-        explicit pe_section(const pe_image* image, const IMAGE_SECTION_HEADER&& header) : m_image(image), m_header(std::move(header)) {}
+        explicit pe_section(const pe_image* image, const IMAGE_SECTION_HEADER&& header) : m_image(image), m_header(header) {}
 
         [[nodiscard]] const IMAGE_SECTION_HEADER* raw() const { return &m_header; }
 
         [[nodiscard]] addr offset(pe_source source = pe_source::inherit) const;
+
+        [[nodiscard]] addr base() const;
 
         [[nodiscard]] region buffer(pe_source source = pe_source::inherit) const;
 
@@ -122,7 +129,7 @@ namespace hy {
 
         pe_status read(pe_scope scope = pe_scope::all);
 
-        std::string file_type() const;
+        std::string file_type() const; // make rebase fn
 
         auto sections() const {
             std::vector<const pe_section*> sorted_sections;
@@ -143,7 +150,32 @@ namespace hy {
 
         std::size_t size(pe_source size_type = pe_source::file) const;
 
-        addr import(std::string_view symbol) const;
+        addr resolve_rva(DWORD rva, pe_source source) const;
+
+    protected:
+        addr internal_get_import(std::string_view symbol, pe_source source = pe_source::inherit, pe_location loc = pe_location::absolute) const;
+        addr internal_get_export(std::string_view symbol, pe_source source = pe_source::inherit, pe_location loc = pe_location::absolute) const;
+
+    public:
+        template <pe_location Location>
+        auto get_import(const std::string_view symbol, const pe_source source = pe_source::inherit) const {
+            auto result = internal_get_import(symbol, source, Location);
+
+            if constexpr (Location == pe_location::absolute)
+                return result.i;
+            else
+                return static_cast<std::uint32_t>(result.i);
+        }
+
+        template <pe_location Location>
+        auto get_export(const std::string_view symbol, const pe_source source = pe_source::inherit) const {
+            auto result = internal_get_export(symbol, source, Location);
+
+            if constexpr (Location == pe_location::absolute)
+                return result.i;
+            else
+                return static_cast<std::uint32_t>(result.i);
+        }
 
         region region() const {
             return { m_stream->base(), size() };

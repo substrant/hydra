@@ -177,6 +177,8 @@ namespace hy {
     /// Represents a region of memory. It can either be created, inherited from,
     /// or point to an unmanaged memory range.
     class region { // TODO: implement virtual memory mapping and shared memory regions, rename to alloc_local/alloc_shared opt name
+        friend class process;
+
         addr         m_base = nullptr; // 0x00
         std::size_t  m_size = 0;       // 0x08
         bool         m_owner;          // 0x10
@@ -302,6 +304,12 @@ namespace hy {
                 m_owner = std::exchange(other.m_owner, false);
             }
             return *this;
+        }
+
+        /// Equality operator for buffer.
+        /// Checks equality of base/size.
+        bool operator==(const region& other) const {
+            return other.m_base == this->m_base && other.m_size == this->m_size;
         }
 
         /// Returns base address of buffer.

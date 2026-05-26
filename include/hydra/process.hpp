@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <expected>
 
 #include <hydra/detail.hpp>
 #include <hydra/handle.hpp>
@@ -14,17 +15,12 @@ namespace hy {
     // Forward-decl
     class process;
    
-    class process : public detail::noncopyable, public std::enable_shared_from_this<process> {
-        std::shared_ptr<process> m_this = nullptr;
-
+    class process : public detail::noncopyable {
         handle<CloseHandle> m_handle;
         ACCESS_MASK m_access;
         
         std::unordered_map<std::uintptr_t, remote_module*> m_modules;
         std::list<remote_module> m_module_list;
-        
-        // Initialize the process object
-        std::shared_ptr<process> init();
 
         // Enumerate PEB for linked modules to the process
         bool eumerate_modules();
@@ -32,20 +28,22 @@ namespace hy {
         // Query basic information about the process using NTAPI
         PROCESS_BASIC_INFORMATION get_info() const;
 
-    protected:
-        HYDRA_INTERNAL("Use 'process::open' to open processes.")
-        explicit process(const HANDLE handle, const bool no_dispose = false)
-            : m_handle(handle, no_dispose), m_access(m_handle.access()) { }
-
     public:
+        HYDRA_INTERNAL("Use 'process::open' to open processes.")
+            explicit process(const HANDLE handle, const bool no_dispose = false)
+            : m_handle(handle, no_dispose), m_access(m_handle.access()) {
+
+            if (!m_handle.is_valid())
+                throw std::runtime_error("Invalid handle provided");
+        }
         // Open a process from an existing handle. The handle will not close on destruction.
-        static std::shared_ptr<process> from_handle(HANDLE handle);
+        static process from_handle(HANDLE handle);
 
         // Open a process from a process ID.
-        static std::shared_ptr<process> open(DWORD id, ACCESS_MASK access = PROCESS_ALL_ACCESS);
+        static std::expected<process, NTSTATUS> open(DWORD process_id, ACCESS_MASK access_mask = PROCESS_ALL_ACCESS);
 
         // Open a process from a module name.
-        static std::shared_ptr<process> open(const std::string& name, ACCESS_MASK access = PROCESS_ALL_ACCESS);
+        static std::expected<process, NTSTATUS> open(const std::string& name, ACCESS_MASK access = PROCESS_ALL_ACCESS);
 
         // Determines if the process handle is valid.
         bool is_valid() const { return m_handle.is_valid(); }
@@ -84,7 +82,7 @@ namespace hy {
         // Returns in memory order
         std::generator<remote_module> unlinked_modules();
 
-        remote_module& module();
+        remote_module* module();
 
         remote_module* module(std::string_view name);
 

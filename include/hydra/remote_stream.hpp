@@ -9,7 +9,7 @@ namespace hy {
     /// Provides in-memory streaming operations.
     class remote_stream final : public memory_stream {
     protected:
-        std::shared_ptr<process> m_proc;
+        process* m_proc;
         addr m_base;
 
         /// Reads data from stream into buffer.
@@ -21,8 +21,8 @@ namespace hy {
         std::size_t write(std::int8_t* src, std::size_t size) const override;
 
     public:
-        explicit remote_stream(std::shared_ptr<process> proc, const addr base)
-            : m_proc(std::move(proc)), m_base(base) { }
+        explicit remote_stream(process* proc, const addr base)
+            : m_proc(proc), m_base(base) { }
 
         /// Destructor for memory_stream.
         /// Cleans up stream resources.

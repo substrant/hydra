@@ -3,6 +3,7 @@
 #include <ranges>
 #include <hydra/toolhelp.hpp>
 #include <chrono>
+#include <expected>
 #include <hydra/process.hpp>
 #include <phnt_windows.h>
 #include <phnt.h>
@@ -11,39 +12,33 @@
 namespace hy {
     using hw_clock = std::chrono::high_resolution_clock;
 
-    std::shared_ptr<process> process::init() {
-        if (!m_handle.is_valid()) throw std::runtime_error("Invalid handle provided");
-        return m_this = shared_from_this();
+    process process::from_handle(const HANDLE handle) {
+        return process(handle, true);
     }
 
-    std::shared_ptr<process> process::from_handle(const HANDLE handle) {
-        const auto proc = std::make_shared<detail::ctor_shim<process>>(handle, true);
-        return proc->init();
-    }
-
-    std::shared_ptr<process> process::open(const DWORD id, const ACCESS_MASK access) {
+    std::expected<process, NTSTATUS> process::open(const DWORD process_id, const ACCESS_MASK access_mask) {
         HANDLE h_proc;
 
         CLIENT_ID cid;
-        cid.UniqueProcess = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(id)); // shitty microsoft design
+        cid.UniqueProcess = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(process_id)); // shitty microsoft design
         cid.UniqueThread = nullptr;
 
         OBJECT_ATTRIBUTES attr;
         InitializeObjectAttributes(&attr, nullptr, 0, nullptr, nullptr);
 
-        if (!NT_SUCCESS(NtOpenProcess(&h_proc, access, &attr, &cid)))
-            return nullptr;
+        const auto status = NtOpenProcess(&h_proc, access_mask, &attr, &cid);
+        if (!NT_SUCCESS(status)) return std::unexpected{ status };
 
-        return from_handle(h_proc);
+        return std::expected<process, NTSTATUS>{ std::in_place, h_proc };
     }
 
-    std::shared_ptr<process> process::open(const std::string& name, const ACCESS_MASK access) {
+    std::expected<process, NTSTATUS> process::open(const std::string& name, const ACCESS_MASK access) {
         for (const auto entry : toolhelp::get_processes()) {
             if (entry.szExeFile == name)
                 return open(entry.th32ProcessID, access);
         }
 
-        return nullptr;
+        return std::unexpected{ STATUS_OBJECT_NAME_NOT_FOUND };
     }
 
     PROCESS_BASIC_INFORMATION process::get_info() const {
@@ -91,7 +86,7 @@ namespace hy {
             const auto base = reinterpret_cast<std::uintptr_t>(module_info.lpBaseOfDll);
 
             auto* ptr = &m_module_list.emplace_back(
-                m_this,
+                this,
                 base,
                 std::string(name_buf, name_len),
                 std::string(path_buf, path_len)
@@ -127,11 +122,10 @@ namespace hy {
     }
 
     std::generator<remote_module&> process::linked_modules() {
-        if (m_modules.empty() && !eumerate_modules())
-            throw std::runtime_error("Failed to enumerate linked modules");
-
-        for (auto&& mod : m_module_list)
-            co_yield mod;
+        if (!m_modules.empty() || eumerate_modules()) {
+            for (auto&& mod : m_module_list)
+                co_yield mod;
+        }
     }
 
     std::generator<remote_module> process::unlinked_modules() {
@@ -139,7 +133,7 @@ namespace hy {
 
         // Scan for linked modules
         if (m_modules.empty() && !eumerate_modules())
-            throw std::runtime_error("Failed to enumerate linked modules");
+            co_return;
 
         // Allocate space and fill bases
         linked_bases.reserve(m_modules.size());
@@ -160,21 +154,20 @@ namespace hy {
                 continue;
 
             // This is an unlinked module
-            co_yield remote_module(m_this, mbi.BaseAddress);
+            co_yield remote_module(this, mbi.BaseAddress);
         }
     }
 
-    remote_module& process::module() {
+    remote_module* process::module() {
         if (m_modules.empty() && !eumerate_modules())
-            throw std::runtime_error("Failed to enumerate linked modules");
+            return nullptr;
 
-        return m_module_list.front(); // first always
+        return &m_module_list.front();
     }
 
     remote_module* process::module(const std::string_view name) {
-        // Scan for linked modules
         if (m_modules.empty() && !eumerate_modules())
-            throw std::runtime_error("Failed to enumerate linked modules");
+            return nullptr;
 
         // Find our module
         for (auto& v : m_module_list)

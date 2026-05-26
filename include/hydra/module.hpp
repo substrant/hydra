@@ -22,6 +22,7 @@ namespace hy {
         bad_nt_signature,
         bad_sections,
         buffer_too_small,
+        needs_more_info,
         success = 0
     };
 
@@ -43,7 +44,7 @@ namespace hy {
     enum class pe_scope : std::uint8_t {
         dos_header = 1,
         nt_headers = 2,
-        sections   = 4,
+        sections   = nt_headers | 4,
         headers    = dos_header | nt_headers,
         all        = headers | sections
     };
@@ -95,8 +96,8 @@ namespace hy {
         std::unique_ptr<memory_stream> m_stream;
         pe_source m_source;
 
-        IMAGE_DOS_HEADER m_dos_header;
-        IMAGE_NT_HEADERS m_nt_headers;
+        IMAGE_DOS_HEADER m_dos_header{};
+        IMAGE_NT_HEADERS m_nt_headers{};
 
         std::unordered_map<std::string, pe_section> m_sections{};
 
@@ -187,14 +188,18 @@ namespace hy {
     };
 
     class remote_module : public pe_image, public detail::noncopyable {
-        std::shared_ptr<process> m_proc;
+        process* m_proc;
         std::optional<std::string> m_name; // just assume if name is nullopt then path is unknown
         std::filesystem::path m_path;
 
     public:
-        explicit remote_module(std::shared_ptr<process> proc, addr base, std::optional<std::string> name = std::nullopt, std::filesystem::path path = {});
+        explicit remote_module(process* proc, addr base, std::optional<std::string> name = std::nullopt, std::filesystem::path path = {});
 
-        std::shared_ptr<process> proc() const { return m_proc; }
+        process& proc() const { return *m_proc; }
+
+        addr operator*() const { return base(); }
+
+        operator addr() const { return base(); } // NOLINT: Expected implicit
 
         //bool dump_image(const hy::buffer& buffer, dump_context* ctx);
 

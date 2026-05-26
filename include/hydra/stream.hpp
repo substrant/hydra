@@ -212,7 +212,7 @@ namespace hy {
         concept StreamLike = std::derived_from<T, stream> && !std::is_abstract_v<T>;
     }
 
-    class memory_stream : public stream, public detail::noncopyable {
+    class memory_stream : public stream {
     protected:
         explicit memory_stream() = default;
 

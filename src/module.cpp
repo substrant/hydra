@@ -75,7 +75,7 @@ namespace hy {
     }
 
     pe_status pe_image::read(const pe_scope scope) {
-        LONG nt_offset, sections_offset;
+        LONG nt_offset = 0;
 
         // Pull and validate the DOS header
         if (static_cast<bool>(scope & pe_scope::dos_header)) {
@@ -84,15 +84,14 @@ namespace hy {
 
             if (m_dos_header.e_magic != IMAGE_DOS_SIGNATURE)
                 return pe_status::bad_dos_signature;
-        }
-
-        if (static_cast<bool>(scope & pe_scope::nt_headers)) {
-            if (!static_cast<bool>(scope & pe_scope::dos_header))
-                throw std::runtime_error("can't read NT headers without DOS information");
 
             // Exract the NT offset
             nt_offset = m_dos_header.e_lfanew;
-            if (!nt_offset) return pe_status::bad_nt_offset;
+        }
+
+        if (static_cast<bool>(scope & pe_scope::nt_headers)) {
+            if (!nt_offset)
+                return pe_status::bad_nt_offset;
 
             // Ensure that we have a large enough buffer for NT headers
             m_stream->seek(nt_offset, stream_origin::begin);
@@ -106,11 +105,8 @@ namespace hy {
         }
 
         if (static_cast<bool>(scope & pe_scope::sections)) { // todo: prob better way to handle 'scopes' because each depends on the other but we need to suppoprt scopes still so we can choose what to write back
-            if (!static_cast<bool>(scope & pe_scope::dos_header))
-                throw std::runtime_error("can't read sections without DOS information");
-
-            if (!static_cast<bool>(scope & pe_scope::nt_headers))
-                throw std::runtime_error("can't read sections without NT headers information");
+            if (!nt_offset)
+                return pe_status::bad_nt_offset;
 
             // Get section infomration
             const auto n_sections = m_nt_headers.FileHeader.NumberOfSections;
@@ -121,10 +117,10 @@ namespace hy {
             m_sections.reserve(n_sections);
 
             // Get offset to sections and verify
-            sections_offset = nt_offset + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + m_nt_headers.FileHeader.SizeOfOptionalHeader;
-            if (!sections_offset)
-                return pe_status::bad_sections;
-            m_stream->seek(sections_offset, stream_origin::begin);
+            const auto sec_offset = nt_offset + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + m_nt_headers.FileHeader.SizeOfOptionalHeader;
+            if (!sec_offset) return pe_status::bad_sections;
+
+            m_stream->seek(sec_offset, stream_origin::begin);
 
             // Fill section data into class
             for (WORD i = 0; i < n_sections; i++) {
@@ -259,8 +255,8 @@ namespace hy {
         return nullptr;
     }
 
-    remote_module::remote_module(std::shared_ptr<process> proc, const addr base, std::optional<std::string> name, std::filesystem::path path)
-        : pe_image(std::make_unique<remote_stream>(proc, base), pe_source::mapped), m_proc(std::move(proc)), m_name(std::move(name)), m_path(std::move(path)) {
+    remote_module::remote_module(process* proc, const addr base, std::optional<std::string> name, std::filesystem::path path)
+        : pe_image(std::make_unique<remote_stream>(proc, base), pe_source::mapped), m_proc(proc), m_name(std::move(name)), m_path(std::move(path)) {
 
         if (read() != pe_status::success) // bad_weak_ptr
             throw std::runtime_error("invalid PE header");

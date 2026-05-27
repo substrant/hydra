@@ -23,7 +23,7 @@ namespace hy {
         backwards
     };
 
-    struct disasm_instr {
+    struct code_ins {
         addr                    offset{};
         ZydisDecodedInstruction data{};
         ZydisDecodedOperand     args[ZYDIS_MAX_OPERAND_COUNT]{};
@@ -46,16 +46,16 @@ namespace hy {
     };
 
     struct code_query {
-        using predicate = std::function<bool(const disasm_instr&)>;
+        using predicate = std::function<bool(const code_ins&)>;
 
         static predicate opcode(const std::uint8_t opcode) {
-            return [=](const disasm_instr& instr) -> bool {
+            return [=](const code_ins& instr) -> bool {
                 return instr.opcode() == opcode;
             };
         }
 
         static predicate disp(const int index, const addr value) {
-            return [=](const disasm_instr& instr) -> bool {
+            return [=](const code_ins& instr) -> bool {
                 if (index > std::max(instr.operand_count() - 1, 0))
                     return false;
 
@@ -68,7 +68,7 @@ namespace hy {
         }
 
         static predicate reg(const int index, const ZydisRegister reg) {
-            return [=](const disasm_instr& instr) -> bool {
+            return [=](const code_ins& instr) -> bool {
                 if (index > std::max(instr.operand_count() - 1, 0))
                     return false;
 
@@ -79,35 +79,40 @@ namespace hy {
 
         template <class ...T>
         static predicate any(const T ...predicates) {
-            return [=](const disasm_instr& instr) -> bool {
+            return [=](const code_ins& instr) -> bool {
                 return (predicates(instr) || ...);
             };
         }
 
         template <class... T>
         static predicate all(T... predicates) {
-            return [=](const disasm_instr& instr) -> bool {
+            return [=](const code_ins& instr) -> bool {
                 return (predicates(instr) && ...);
             };
         }
     };
 
-    class disasm {
+    class code_disasm {
         region m_buffer;
         addr m_rip = nullptr; // Remote base address of buffer
         addr m_off = 0ull;
 
         ZyanStatus     m_status = 0;
         ZydisDecoder   m_decoder;
-        ZydisFormatter m_formatter;
+        ZydisFormatter m_fmt;
 
     public:
-        explicit disasm(region buffer) : m_buffer(std::move(buffer)) {
-            ZydisDecoderInit(&m_decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
-            ZydisFormatterInit(&m_formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+        explicit code_disasm(
+            region buffer,
+            ZydisMachineMode mode = ZYDIS_MACHINE_MODE_LONG_64,
+            ZydisStackWidth width = ZYDIS_STACK_WIDTH_64
+        ) : m_buffer(std::move(buffer)) {
+
+            ZydisDecoderInit(&m_decoder, mode, width);
+            ZydisFormatterInit(&m_fmt, ZYDIS_FORMATTER_STYLE_INTEL);
         }
 
-        disasm save() const {
+        code_disasm save() const {
             return { *this };
         }
 
@@ -115,20 +120,20 @@ namespace hy {
             return m_buffer.base() + m_off;
         }
 
-        std::string format(const disasm_instr* instr);
+        std::string format(const code_ins* instr);
 
-        bool read(disasm_instr* pc = nullptr, std::size_t size = 0);
+        bool read(code_ins* pc = nullptr, std::size_t size = 0);
 
-        bool step(disasm_instr* pc = nullptr, std::size_t size = 0);
+        bool step(code_ins* pc = nullptr, std::size_t size = 0);
 
         bool skip(int n = 1);
 
         bool match(const std::uint8_t* pattern, const char* mask, addr stop_off, direction dir = direction::forwards);
 
-        std::optional<disasm> find_impl(std::size_t limit, const code_query::predicate& master_predicate) const;
+        std::optional<code_disasm> find_impl(std::size_t limit, const code_query::predicate& master_predicate) const;
 
         template <class... T>
-        std::optional<disasm> find(const std::size_t limit, T ...predicates) {
+        std::optional<code_disasm> find(const std::size_t limit, T ...predicates) {
             const auto master_predicate = code_query::all(predicates...);
             return find_impl(limit, master_predicate);
         }

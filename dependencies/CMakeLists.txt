@@ -12,3 +12,7 @@ set(ZYDIS_BUILD_EXAMPLES OFF)
 set(ZYDIS_BUILD_TOOLS OFF)
 set(ZYDIS_BUILD_TESTS OFF)
 add_subdirectory(zydis)
+
+# Fuck you Zydis devs. You can't feed MSVC flags to NASM
+set_target_properties(Zycore PROPERTIES INTERFACE_COMPILE_OPTIONS "")
+set_target_properties(Zydis PROPERTIES INTERFACE_COMPILE_OPTIONS "")

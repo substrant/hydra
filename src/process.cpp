@@ -5,6 +5,7 @@
 #include <chrono>
 #include <expected>
 #include <hydra/process.hpp>
+#include <hydra/syscall.hpp>
 #include <phnt_windows.h>
 #include <phnt.h>
 #include <psapi.h>
@@ -26,7 +27,7 @@ namespace hy {
         OBJECT_ATTRIBUTES attr;
         InitializeObjectAttributes(&attr, nullptr, 0, nullptr, nullptr);
 
-        const auto status = NtOpenProcess(&h_proc, access_mask, &attr, &cid);
+        const auto status = syscall::NtOpenProcess(&h_proc, access_mask, &attr, &cid);
         if (!NT_SUCCESS(status)) return std::unexpected{ status };
 
         return std::expected<process, NTSTATUS>{ std::in_place, h_proc };
@@ -45,7 +46,7 @@ namespace hy {
         PROCESS_BASIC_INFORMATION pbi{};
 
         // Ignore response we zero out
-        NtQueryInformationProcess(m_handle, ProcessBasicInformation, &pbi, sizeof(pbi), nullptr);
+        syscall::NtQueryInformationProcess(m_handle, ProcessBasicInformation, &pbi, sizeof(pbi), nullptr);
 
         return pbi;
     }
@@ -102,7 +103,7 @@ namespace hy {
         NTSTATUS dummy_status;
         if (!p_status) p_status = &dummy_status;
 
-        *p_status = NtTerminateProcess(m_handle, exit_code);
+        *p_status = syscall::NtTerminateProcess(m_handle, exit_code);
         m_handle = nullptr;
 
         return NT_SUCCESS(*p_status);
@@ -186,7 +187,7 @@ namespace hy {
         if (size == 0 || size > buffer.size()) return false;
 
         SIZE_T read;
-        NTSTATUS status = NtReadVirtualMemory(m_handle, base, buffer.base(), size, &read);
+        NTSTATUS status = syscall::NtReadVirtualMemory(m_handle, base, buffer.base(), size, &read);
 
         if (!NT_SUCCESS(status))
             return 0;
@@ -196,7 +197,7 @@ namespace hy {
 
     bool process::mm_query(const addr base, MEMORY_BASIC_INFORMATION& mbi) const {
         SIZE_T mbi_len;
-        return NT_SUCCESS(NtQueryVirtualMemory(m_handle, base, MemoryBasicInformation, &mbi, sizeof(mbi), &mbi_len));
+        return NT_SUCCESS(syscall::NtQueryVirtualMemory(m_handle, base, MemoryBasicInformation, &mbi, sizeof(mbi), &mbi_len));
     }
 
     std::generator<MEMORY_BASIC_INFORMATION> process::mm_regions(const region& buffer) const {
@@ -212,7 +213,7 @@ namespace hy {
     DWORD process::mm_protect(addr base, std::size_t size, const DWORD new_prot) const {
         DWORD old_prot;
         if (!(m_access & PROCESS_VM_OPERATION)) return 0;
-        return NT_SUCCESS(NtProtectVirtualMemory(
+        return NT_SUCCESS(syscall::NtProtectVirtualMemory(
             m_handle,
             &base.u,
             &size,
@@ -223,7 +224,7 @@ namespace hy {
 
     std::optional<region> process::mm_alloc(addr base, std::size_t size, const DWORD flags, const DWORD protect) const {
         if (!(m_access & PROCESS_VM_OPERATION)) return std::nullopt;
-        return NT_SUCCESS(NtAllocateVirtualMemory(
+        return NT_SUCCESS(syscall::NtAllocateVirtualMemory(
             m_handle,
             &base.u,
             0, // Anywhere in user VA space
@@ -252,7 +253,7 @@ namespace hy {
             return 0;
 
         SIZE_T written;
-        NTSTATUS status = NtWriteVirtualMemory(
+        NTSTATUS status = syscall::NtWriteVirtualMemory(
             m_handle,
             base,
             buffer.base(),
@@ -266,14 +267,14 @@ namespace hy {
         if (!(m_access & PROCESS_VM_OPERATION)) return false;
 
         SIZE_T size = 0;
-        const auto status = NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&base.u), &size, MEM_RELEASE);
+        const auto status = syscall::NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&base.u), &size, MEM_RELEASE);
 
         return NT_SUCCESS(status);
     }
 
     bool process::mm_decommit(const region& region) const {
         SIZE_T size = region.size();
-        return NT_SUCCESS(NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&region.m_base.u), &size, MEM_DECOMMIT));
+        return NT_SUCCESS(syscall::NtFreeVirtualMemory(m_handle, const_cast<PPVOID>(&region.m_base.u), &size, MEM_DECOMMIT));
     }
 
     addr process::mm_inject(const region& buffer, const DWORD protect) const {

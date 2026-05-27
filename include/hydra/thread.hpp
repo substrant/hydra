@@ -6,6 +6,7 @@
 #include "hydra/detail.hpp"
 #include "hydra/memory.hpp"
 #include "hydra/handle.hpp"
+#include "hydra/syscall.hpp"
 
 namespace hy {
     class thread : public detail::noncopyable, public std::enable_shared_from_this<thread> {
@@ -51,7 +52,7 @@ namespace hy {
 
         addr entry() const {
             std::uintptr_t info{};
-            (void)NtQueryInformationThread(m_handle, ThreadQuerySetWin32StartAddress, &info, sizeof(info), nullptr);
+            (void)syscall::NtQueryInformationThread(m_handle, ThreadQuerySetWin32StartAddress, &info, sizeof(info), nullptr);
             return info;
         }
 
@@ -65,7 +66,7 @@ namespace hy {
 
         ULONG resume() const {
             ULONG prev_depth;
-            if (!NT_SUCCESS(NtResumeThread(m_handle, &prev_depth)))
+            if (!NT_SUCCESS(syscall::NtResumeThread(m_handle, &prev_depth)))
                 return -1;
 
             return prev_depth - 1;
@@ -75,7 +76,7 @@ namespace hy {
             NTSTATUS dummy_status;
             if (!p_status) p_status = &dummy_status;
             
-            *p_status = NtTerminateThread(m_handle, status);
+            *p_status = syscall::NtTerminateThread(m_handle, status);
             return NT_SUCCESS(*p_status);
         }
 

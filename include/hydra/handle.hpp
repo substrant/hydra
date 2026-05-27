@@ -4,6 +4,7 @@
 #include <phnt.h>
 
 #include "hydra/detail.hpp"
+#include "hydra/syscall.hpp"
 
 namespace hy {
     namespace detail {
@@ -63,7 +64,7 @@ namespace hy {
             OBJECT_BASIC_INFORMATION info{};
             DWORD info_written;
 
-            if (!NT_SUCCESS(NtQueryObject(
+            if (!NT_SUCCESS(syscall::NtQueryObject(
                 m_handle,
                 ObjectBasicInformation,
                 &info,
@@ -87,7 +88,7 @@ namespace hy {
         ~handle() { close(); }
     };
 
-    using nt_handle = handle<NtClose>;
+    using nt_handle = handle<syscall::NtClose>;
 
     template <typename T>
     struct _impl_handle_t;

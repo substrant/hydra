@@ -10,6 +10,7 @@
 #include <phnt.h>
 
 #include <hydra/detail.hpp>
+#include <hydra/syscall.hpp>
 
 namespace hy {
     struct addr;
@@ -188,7 +189,7 @@ namespace hy {
             // Update ownership status
             m_owner = true;
 
-            const auto status = NtAllocateVirtualMemory(
+            const auto status = syscall::NtAllocateVirtualMemory(
                 NtCurrentProcess(), &m_base.u, 0, &size,
                 MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE
             );
@@ -207,7 +208,7 @@ namespace hy {
 
         bool release() {
             if (m_owner && m_base) {
-                const auto status = NtFreeVirtualMemory(NtCurrentProcess(), &m_base.u, &m_size, MEM_RELEASE);
+                const auto status = syscall::NtFreeVirtualMemory(NtCurrentProcess(), &m_base.u, &m_size, MEM_RELEASE);
                 if (!NT_SUCCESS(status)) return false;
             }
 

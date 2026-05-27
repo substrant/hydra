@@ -16,7 +16,7 @@ namespace hy {
     struct addr;
     class region;
 
-    /* Hydra address concepts for type safety and *magical* shit */
+    /* Hydra address concepts for type safety and implicit conversions */
 
     namespace detail {
         template <class T>
@@ -170,7 +170,7 @@ namespace hy {
         /// Equality comparison operator for addr.
         /// Returns true if addresses are equal.
         template <detail::HydraPointerOperand T>
-        friend constexpr bool operator==(const addr& lhs, const T rhs) { // NOLINT: Compiler is fucking retarded
+        friend constexpr bool operator==(const addr& lhs, const T rhs) { // NOLINT: Comparison with convertible type
             return lhs.i == normalize(rhs);
         }
     };

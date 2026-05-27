@@ -43,7 +43,7 @@ namespace hy {
             case pe_source::header:
                 throw std::runtime_error("cannot get section offset without stream access");
             default:
-                throw std::runtime_error("what the fuck are you feeding this function bruh");
+                throw std::runtime_error("invalid pe_source for this operation");
         }
     }
 
@@ -70,7 +70,7 @@ namespace hy {
         case pe_source::file:
             return m_header.SizeOfRawData;
         default:
-            throw std::runtime_error("what the fuck are you feeding this function bruh");
+            throw std::runtime_error("invalid pe_source for this operation");
         }
     }
 
@@ -96,7 +96,7 @@ namespace hy {
             // Ensure that we have a large enough buffer for NT headers
             m_stream->seek(nt_offset, stream_origin::begin);
 
-            // Read NT headers at base + e_lfanew (bro what idiot named this)
+            // Read NT headers at base + e_lfanew
             if (m_stream->read_obj(m_nt_headers) != sizeof(IMAGE_NT_HEADERS))
                 return pe_status::buffer_too_small;
 
@@ -205,7 +205,7 @@ namespace hy {
         const auto import_descriptor = static_cast<PIMAGE_IMPORT_DESCRIPTOR>(resolve_rva(import_dir.VirtualAddress, src));
         if (!import_descriptor) return nullptr;
 
-        // TODO: some day refactor this shit to use new methods introduced to pe_image. If it aint broke dont fix it
+        // TODO: refactor to use newer pe_image methods
 
         for (auto descriptor = import_descriptor; descriptor->Name != 0; descriptor++) {
             const auto thunk = static_cast<PIMAGE_THUNK_DATA>(resolve_rva(descriptor->FirstThunk, src));

@@ -21,7 +21,7 @@ namespace hy {
         HANDLE h_proc;
 
         CLIENT_ID cid;
-        cid.UniqueProcess = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(process_id)); // shitty microsoft design
+        cid.UniqueProcess = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(process_id)); // NOLINT: HANDLE cast from DWORD
         cid.UniqueThread = nullptr;
 
         OBJECT_ATTRIBUTES attr;

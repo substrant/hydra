@@ -34,7 +34,7 @@ namespace hy {
 
             CLIENT_ID cid;
             cid.UniqueProcess = nullptr;
-            cid.UniqueThread = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(id)); // shitty microsoft design 420
+            cid.UniqueThread = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(id)); // NOLINT: HANDLE cast from DWORD
 
             OBJECT_ATTRIBUTES attr;
             InitializeObjectAttributes(&attr, nullptr, 0, nullptr, nullptr);

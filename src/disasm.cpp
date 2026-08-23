@@ -1,70 +1,224 @@
-#include "hydra/code_disasm.hpp"
+#include <hydra/disasm.hpp>
+
+#include <Zydis/Utils.h>
+#include <sstream>
 
 namespace {
-    thread_local hy::code_ins dummy_instr;
-}
-
-namespace hy {
-    bool code_disasm::read(code_ins* pc, const std::size_t size) {
-        if (!pc) pc = &dummy_instr;
-        m_status = ZydisDecoderDecodeFull(&m_decoder, pos(), size, &pc->data, &pc->args[0]);
-        return ZYAN_SUCCESS(m_status);
+    bool is_padding(const hy::disasm_ins& ins) {
+        return ins.mnemonic == ZYDIS_MNEMONIC_NOP || ins.mnemonic == ZYDIS_MNEMONIC_INT3;
     }
 
-    bool code_disasm::step(code_ins* pc, const std::size_t size) {
-        const auto success = read(pc, size);
-        if (success) m_off += pc->size();
-        return success;
+    bool is_rsp(const ZydisDecodedOperand& op) {
+        return op.type == ZYDIS_OPERAND_TYPE_REGISTER && op.reg.value == ZYDIS_REGISTER_RSP;
     }
 
-    bool code_disasm::skip(int n) {
-        for (; n > 0; n--)
-            if (!step(nullptr)) return false;
-        return true;
+    bool is_rbp(const ZydisDecodedOperand& op) {
+        return op.type == ZYDIS_OPERAND_TYPE_REGISTER && op.reg.value == ZYDIS_REGISTER_RBP;
     }
 
-    bool code_disasm::match(const std::uint8_t* pattern, const char* mask, const addr stop_off, const direction dir) {
-        const std::intptr_t step = (dir == direction::forwards) ? 1 : -1;
-        const std::size_t pattern_size = strlen(mask);
+    bool is_nonvolatile(const ZydisRegister reg) {
+        switch (reg) {
+        case ZYDIS_REGISTER_RBX:
+        case ZYDIS_REGISTER_RBP:
+        case ZYDIS_REGISTER_RSI:
+        case ZYDIS_REGISTER_RDI:
+        case ZYDIS_REGISTER_R12:
+        case ZYDIS_REGISTER_R13:
+        case ZYDIS_REGISTER_R14:
+        case ZYDIS_REGISTER_R15:
+            return true;
+        default:
+            return false;
+        }
+    }
 
-        addr current = pos();
-        const addr end = current + stop_off;
-
-        // Early exit if we're already out of bounds
-        if ((dir == direction::forwards && current >= end) || (dir == direction::backwards && current <= end))
+    bool is_push_prologue(const hy::disasm_ins& ins) {
+        if (ins.mnemonic != ZYDIS_MNEMONIC_PUSH || ins.operand_count_visible < 1)
             return false;
 
-        while ((dir == direction::forwards && current < end) || (dir == direction::backwards && current > end)) {
-            if (region::match_aob(current, pattern, mask, pattern_size)) {
-                m_off = current - m_buffer.base(); // update position only on match
-                return true;
-            }
+        return ins.ops[0].type == ZYDIS_OPERAND_TYPE_REGISTER && is_nonvolatile(ins.ops[0].reg.value);
+    }
 
-            current += step;
-        }
+    bool is_store_prologue(const hy::disasm_ins& ins) {
+        if (ins.mnemonic != ZYDIS_MNEMONIC_MOV || ins.operand_count_visible < 2)
+            return false;
+
+        if (ins.ops[0].type != ZYDIS_OPERAND_TYPE_MEMORY || ins.ops[0].mem.base != ZYDIS_REGISTER_RSP)
+            return false;
+
+        return ins.ops[1].type == ZYDIS_OPERAND_TYPE_REGISTER && is_nonvolatile(ins.ops[1].reg.value);
+    }
+
+    bool is_stack_alloc(const hy::disasm_ins& ins) {
+        return ins.mnemonic == ZYDIS_MNEMONIC_SUB && ins.operand_count_visible >= 2 && is_rsp(ins.ops[0]) && ins.ops[1].type == ZYDIS_OPERAND_TYPE_IMMEDIATE;
+    }
+
+    bool is_frame_setup(const hy::disasm_ins& ins) {
+        if (ins.operand_count_visible < 2)
+            return false;
+
+        if (ins.mnemonic == ZYDIS_MNEMONIC_MOV && is_rbp(ins.ops[0]) && is_rsp(ins.ops[1]))
+            return true;
+
+        if (ins.mnemonic == ZYDIS_MNEMONIC_LEA && is_rbp(ins.ops[0]) && ins.ops[1].type == ZYDIS_OPERAND_TYPE_MEMORY && ins.ops[1].mem.base == ZYDIS_REGISTER_RSP)
+            return true;
 
         return false;
     }
 
-    std::optional<code_disasm> code_disasm::find_impl(const std::size_t limit, const code_query::predicate& master_predicate) const {
-        auto preview = save();
-        const auto max_pos = pos() + limit;
+    bool is_terminal(const hy::disasm_ins& ins) {
+        return ins.mnemonic == ZYDIS_MNEMONIC_RET || ins.mnemonic == ZYDIS_MNEMONIC_JMP;
+    }
+}
 
-        code_ins pc;
-        do {
-            const auto bytes_left = max_pos - pos();
-            if (!preview.step(&pc, bytes_left)) return std::nullopt;
-        } while (!master_predicate(pc) || pos() >= max_pos);
+namespace hy {
+    err disasm::step_ins(disasm_ins* ins, const bool operands) const {
+        ZyanStatus status;
+        ZydisDecoderContext context;
 
-        return preview;
+        constexpr auto max_ins_size = 15;
+        std::int8_t ins_buffer[max_ins_size]{};
+
+        if (!m_stream->read(ins_buffer, max_ins_size))
+            return STA_END_OF_STREAM;
+
+        if (!ZYAN_SUCCESS(status = ZydisDecoderDecodeInstruction(
+            &m_decoder,
+            &context,
+            ins_buffer,
+            max_ins_size,
+            ins
+        ))) return STA_DISASM_DECODE_FAIL_INSTRUCTION;
+        
+        if (operands && !ZYAN_SUCCESS(status = ZydisDecoderDecodeOperands(
+            &m_decoder,
+            &context,
+            ins,
+            ins->ops,
+            ins->operand_count
+        ))) return STA_DISASM_DECODE_FAIL_OPERANDS;
+
+        ins->pc = m_stream->position;
+        m_stream->position += ins->length;
+
+        return STA_SUCCESS;
     }
 
-    std::string code_disasm::format(const code_ins* instr) {
-        char buf[0xFF];
+    err disasm::step_func_prologue(disasm_func* func) const {
+        err status;
+        disasm_ins ins{};
 
-        m_status = ZydisFormatterFormatInstruction(&m_fmt, &instr->data, instr->args, instr->data.operand_count, buf, sizeof(buf), m_rip + instr->offset, ZYAN_NULL);
-        if (!ZYAN_SUCCESS(m_status)) buf[0] = '\0';
+        do {
+            const auto save = m_stream->position;
 
-        return { buf };
+            if ((status = step_ins(&ins)) != STA_SUCCESS)
+                return status;
+
+            if (!is_padding(ins)) {
+                m_stream->position = save;
+                break;
+            }
+        } while (true);
+
+        func->base = m_stream->position;
+        func->size = 0;
+
+        do {
+            const auto save = m_stream->position;
+
+            if ((status = step_ins(&ins)) != STA_SUCCESS)
+                return status;
+
+            if (!is_push_prologue(ins) && !is_store_prologue(ins) && !is_stack_alloc(ins) && !is_frame_setup(ins)) {
+                m_stream->position = save;
+                break;
+            }
+        } while (true);
+
+        return STA_SUCCESS;
+    }
+
+    err disasm::step_func_epilogue(disasm_func* func) const {
+        err status;
+        disasm_ins ins{};
+
+        do {
+            if ((status = step_ins(&ins)) != STA_SUCCESS)
+                return status;
+
+            if (!is_terminal(ins))
+                continue;
+
+            const auto end = m_stream->position;
+
+            do {
+                const auto save = m_stream->position;
+
+                if ((status = step_ins(&ins)) != STA_SUCCESS) {
+                    if (status == STA_END_OF_STREAM) {
+                        func->size = end - func->base;
+                        return STA_SUCCESS;
+                    }
+
+                    return status;
+                }
+
+                if (!is_padding(ins)) {
+                    m_stream->position = save;
+                    break;
+                }
+
+                if (!(m_stream->position % 16)) {
+                    func->size = end - func->base;
+                    return STA_SUCCESS;
+                }
+            } while (true);
+        } while (true);
+    }
+
+    err disasm::step_func(disasm_func* func) const {
+        err status;
+
+        if ((status = step_func_prologue(func)) != STA_SUCCESS)
+            return status;
+
+        if ((status = step_func_epilogue(func)) != STA_SUCCESS)
+            return status;
+
+        return STA_SUCCESS;
+    }
+
+    std::string disasm::format_ins(const disasm_ins* ins) const {
+        constexpr auto result_max_size = 256;
+        std::string text(result_max_size, '\0');
+
+        if (!ZYAN_SUCCESS(ZydisFormatterFormatInstruction(
+            &m_formatter,
+            ins,
+            ins->ops,
+            ins->operand_count_visible,
+            text.data(),
+            result_max_size,
+            ins->pc,
+            ZYAN_NULL
+        ))) return "<unknown>"; // todo: returns invalid not unknown so this is not executing
+
+        text.resize(std::strlen(text.data()));
+        return text;
+    }
+
+    std::string disasm::format_func(const disasm_func* func) const {
+        disasm_ins ins;
+        std::stringstream ss;
+        
+        const auto func_end = func->base + func->size;
+        const auto save = m_stream->position;
+
+        m_stream->position = func->base;
+        while (m_stream->position < func_end && step_ins(&ins) == STA_SUCCESS)
+            ss << format_ins(&ins) << "\n";
+
+        m_stream->position = save;
+        return ss.str();
     }
 }

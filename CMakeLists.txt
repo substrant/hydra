@@ -1,7 +1,7 @@
 ﻿cmake_minimum_required(VERSION 4.0)
 project(Substrant.Hydra VERSION 1.0.0 LANGUAGES CXX C ASM_NASM)
 
-option(HYDRA_BUILD_EXPERIMENTS "Build Hydra experiments" ON)
+option(HYDRA_BUILD_TESTS "Build hydra tests" ON)
 
 # Validate platform
 if(NOT WIN32)
@@ -33,7 +33,6 @@ set_target_properties(Substrant.Hydra PROPERTIES
 )
 
 target_compile_definitions(Substrant.Hydra PRIVATE
-    WIN32_LEAN_AND_MEAN              # Exclude rarely used Windows headers
     _MBCS                            # Use multi-byte character set
     ZYDIS_STATIC_BUILD               # Link Zydis statically
     HYDRA_IS_LIBRARY                 # Indicate this is a library build
@@ -47,10 +46,10 @@ target_include_directories(Substrant.Hydra
 )
 
 target_link_libraries(Substrant.Hydra
-    PRIVATE Zydis Zycore
+    PUBLIC Zydis Zycore
     PUBLIC phnt
 )
 
-if(HYDRA_BUILD_EXPERIMENTS)
-    add_subdirectory(experiments)
+if(HYDRA_BUILD_TESTS)
+    add_subdirectory(test)
 endif()

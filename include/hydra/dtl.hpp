@@ -1,15 +1,14 @@
 #pragma once
 
-#include <optional>
 #include <memory>
 
-#ifdef HYDRA_IS_LIBRARY
+#ifdef HY_LIBRARY
 #    define HYDRA_INTERNAL(x)
 #else
 #    define HYDRA_INTERNAL(x) [[deprecated("Internal Hydra symbol: " x)]]
 #endif
 
-namespace hy::detail {
+namespace hy::dtl {
     /* Concepts */
 
     template <class T>
@@ -24,17 +23,6 @@ namespace hy::detail {
         std::same_as<std::remove_cvref_t<T>, std::int8_t> ||
         std::same_as<std::remove_cvref_t<T>, std::uint8_t> ||
         std::same_as<std::remove_cvref_t<T>, char>;
-
-    template <class T>
-    concept IntegralPointer =
-        std::integral<std::remove_cvref_t<T>> ||
-        std::convertible_to<std::remove_cvref_t<T>, std::uintptr_t>;
-
-    template <class T>
-    concept NativePointer =
-        std::same_as<std::remove_cvref_t<T>, std::nullptr_t> ||
-        std::same_as<std::remove_cvref_t<T>, std::uintptr_t> ||
-        std::is_pointer_v<std::remove_cvref_t<T>>;
 
     /* Helper classes */
 
@@ -52,7 +40,7 @@ namespace hy::detail {
         ctor_shim(U&& ...x) : T(std::forward<U>(x)...) { } // NOLINT: Expects implicit
     };
 
-    struct noncopyable {
+    struct noncopyable { // NOLINT
         noncopyable() = default;
         noncopyable(const noncopyable&) = delete;
         noncopyable& operator=(const noncopyable&) = delete;

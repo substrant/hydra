@@ -17,6 +17,12 @@ namespace hy {
             return proc->claim();
         }
 
+        using proc::mm_alloc;
+
+        inline blk mm_alloc(const std::size_t size, const mem_mode mode) {
+            return mm_alloc(nullptr, size, mode);
+        }
+
         ~proc() override { }
     };
 }

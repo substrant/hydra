@@ -8,9 +8,45 @@
 
 namespace hy {
     struct seg : impl::seg {
-        explicit seg(const mod_state state, const ptr image_base, const IMAGE_SECTION_HEADER& header) {
-            this->base = image_base + (state == mod_state::flat ? header.PointerToRawData : header.VirtualAddress);
-            this->size = state == mod_state::flat ? header.SizeOfRawData : header.Misc.VirtualSize;
+    protected:
+        ptr image_base;
+
+        std::size_t physical_offset;
+        std::size_t virtual_offset;
+
+        std::size_t physical_size;
+        std::size_t virtual_size;
+
+    public:
+        inline std::size_t calc_base(const mod_state state, ptr base = -1) const {
+            if (base == -1) base = image_base;
+            return base + (state == mod_state::flat ? physical_offset : virtual_offset);
+        }
+        
+        inline std::size_t calc_size(const mod_state state) const {
+            return state == mod_state::flat ? physical_size : virtual_size;
+        }
+
+        explicit seg(const mod_state state, const ptr image_base, const IMAGE_SECTION_HEADER& header) : image_base(image_base) {
+            mode = mem_mode::none;
+
+            physical_offset = header.PointerToRawData;
+            virtual_offset = header.VirtualAddress;
+
+            physical_size = header.SizeOfRawData;
+            virtual_size = header.Misc.VirtualSize;
+
+            if (header.Characteristics & IMAGE_SCN_MEM_READ)
+                mode |= mem_mode::read;
+
+            if (header.Characteristics & IMAGE_SCN_MEM_WRITE)
+                mode |= mem_mode::write;
+
+            if (header.Characteristics & IMAGE_SCN_MEM_EXECUTE)
+                mode |= mem_mode::exec;
+
+            this->base = calc_base(state);
+            this->size = calc_size(state);
 
             const auto segment_name = reinterpret_cast<const char*>(header.Name);
             name = std::string(segment_name, strnlen(segment_name, sizeof(segment_name)));
@@ -28,6 +64,8 @@ namespace hy::shim {
         using impl::mod::mod;
 
         err parse() override;
+
+        std::size_t calc_size(mod_state state) override;
 
         std::generator<seg> segments(err* error) override;
     };

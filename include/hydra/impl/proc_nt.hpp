@@ -41,6 +41,10 @@ namespace hy::shim {
 
         std::size_t mm_write(ptr remote_dst, ptr local_src, std::size_t size) override;
 
-        bool mm_protect(ptr remote_base, mem_mode mode, std::size_t size = 0) override;
+        bool mm_protect(ptr remote_base, std::size_t size, mem_mode mode) override;
+
+        blk mm_alloc(ptr remote_base, std::size_t size, mem_mode mode) override;
+
+        bool mm_free(ptr remote_base) override;
     };
 }

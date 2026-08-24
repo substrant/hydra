@@ -5,6 +5,29 @@
 #include <hydra/impl/proc_nt.hpp>
 #include <hydra/nt/err.hpp>
 
+namespace {
+    constexpr DWORD protection_map[] = {
+        PAGE_NOACCESS,             // ---
+        PAGE_READONLY,             // r--
+        PAGE_READWRITE,            // -w-
+        PAGE_READWRITE,            // rw-
+        PAGE_EXECUTE,              // --x
+        PAGE_EXECUTE_READ,         // r-x
+        PAGE_EXECUTE_READWRITE,    // -wx
+        PAGE_EXECUTE_READWRITE     // rwx
+    };
+
+    constexpr ULONG get_protection(const hy::mem_mode mode) {
+        const auto rwx = mode & (hy::mem_mode::read | hy::mem_mode::write | hy::mem_mode::exec);
+        ULONG protection = protection_map[static_cast<std::uint8_t>(rwx)];
+
+        if ((mode & hy::mem_mode::guard) != 0)
+            protection |= PAGE_GUARD;
+
+        return protection;
+    }
+}
+
 namespace hy::shim {
     err proc::claim() {
         // Missing process ID
@@ -81,30 +104,39 @@ namespace hy::shim {
         return bytes_read;
     }
 
-    bool proc::mm_protect(const ptr remote_base, const mem_mode mode, std::size_t size) {
-        static constexpr DWORD protection_map[] = {
-            PAGE_NOACCESS,             // ---
-            PAGE_READONLY,             // r--
-            PAGE_READWRITE,            // -w-
-            PAGE_READWRITE,            // rw-
-            PAGE_EXECUTE,              // --x
-            PAGE_EXECUTE_READ,         // r-x
-            PAGE_EXECUTE_READWRITE,    // -wx
-            PAGE_EXECUTE_READWRITE     // rwx
-        };
-
-        const auto rwx = mode & (mem_mode::read | mem_mode::write | mem_mode::exec);
-        auto protection = protection_map[static_cast<std::uint8_t>(rwx)];
-
-        if ((mode & mem_mode::guard) != 0)
-            protection |= PAGE_GUARD;
-
+    bool proc::mm_protect(const ptr remote_base, std::size_t size, const mem_mode mode) {
+        auto protection = get_protection(mode);
         return NT_SUCCESS(nt::err = NtProtectVirtualMemory(
             hnd,
             remote_base,
             &size,
             protection,
             &protection
+        ));
+    }
+
+    blk proc::mm_alloc(const ptr remote_base, std::size_t size, const mem_mode mode) {
+        const auto protection = get_protection(mode);
+        
+        if (!NT_SUCCESS(nt::err = NtAllocateVirtualMemory(
+            hnd,
+            remote_base,
+            0,
+            &size,
+            MEM_COMMIT | MEM_RESERVE,
+            protection
+        ))) return blk(0);
+
+        return remote_base;
+    }
+
+    bool proc::mm_free(const ptr remote_base) {
+        std::size_t size = 0;
+        return NT_SUCCESS(nt::err = NtFreeVirtualMemory(
+            hnd,
+            remote_base,
+            &size,
+            MEM_RELEASE
         ));
     }
 }

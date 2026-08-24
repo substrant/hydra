@@ -16,8 +16,16 @@ namespace hy {
         return static_cast<mem_mode>(std::to_underlying(lhs) | std::to_underlying(rhs));
     }
 
+    constexpr mem_mode operator|=(const mem_mode lhs, const mem_mode rhs) {
+        return lhs | rhs;
+    }
+
     constexpr mem_mode operator&(const mem_mode lhs, const mem_mode rhs) {
         return static_cast<mem_mode>(std::to_underlying(lhs) & std::to_underlying(rhs));
+    }
+
+    constexpr mem_mode operator&=(const mem_mode lhs, const mem_mode rhs) {
+        return lhs & rhs;
     }
 
     constexpr bool operator==(const mem_mode lhs, const std::uint8_t rhs) {

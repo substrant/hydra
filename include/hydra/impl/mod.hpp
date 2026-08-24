@@ -2,6 +2,7 @@
 
 #include <hydra/stm.hpp>
 #include <hydra/err.hpp>
+#include <hydra/mem.hpp>
 
 #include <optional>
 #include <string>
@@ -9,8 +10,10 @@
 
 namespace hy {
     enum class mod_state : std::uint8_t {
+        header = 0,
         flat,
-        mapped
+        mapped,
+        inherit = -1
     };
 
     struct seg;
@@ -20,9 +23,10 @@ namespace hy {
 namespace hy::impl {
     struct seg : blk {
         std::optional<std::string> name;
+        mem_mode mode;
     };
 
-    class mod {
+    class mod : public blk {
     protected:
         stm* m_stream;
         bool m_owner;
@@ -41,7 +45,9 @@ namespace hy::impl {
 
         virtual std::generator<hy::seg> segments(err* error) = 0;
 
-        virtual ~mod() {
+        virtual std::size_t calc_size(mod_state state) = 0;
+
+        ~mod() override {
             if (m_owner && m_stream)
                 delete m_stream;
         }

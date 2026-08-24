@@ -6,7 +6,7 @@
 
 namespace hy::shim {
     err mod::parse() {
-        m_stream->seek(stm_origin::begin);
+        base = m_stream->seek(stm_origin::begin);
 
         if (m_stream->read(&dos) != sizeof(dos))
             return STA_PARTIAL_READ;
@@ -28,18 +28,44 @@ namespace hy::shim {
         return STA_SUCCESS;
     }
 
+    std::size_t mod::calc_size(mod_state state) {
+        if (state == mod_state::inherit)
+            state = m_state;
+
+        err error = STA_SUCCESS; // todo
+
+        if (state == mod_state::header) {
+            const auto first_it = segments(&error).begin();
+            if (error != STA_SUCCESS) return sizeof(dos) + sizeof(nt);
+
+            return (*first_it).base - base;
+        }
+        else {
+            std::size_t max_end = 0;
+
+            for (const auto& segment : segments(&error)) {
+                const auto end = segment.calc_base(state) + segment.calc_size(state);
+                max_end = std::max<size_t>(end, max_end);
+            }
+
+            return max_end - base;
+        }
+    }
+
     std::generator<seg> mod::segments(err* error) {
         const auto count = nt.FileHeader.NumberOfSections;
-        const auto offset = FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader;
+        if (count == 0) {
+            *error = STA_PARTIAL_READ;
+            co_return;
+        }
 
+        const auto offset = FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader;
         if (!offset) {
             *error = STA_PARTIAL_READ;
             co_return;
         }
 
         IMAGE_SECTION_HEADER header;
-        const auto image_base = m_stream->seek(stm_origin::begin);
-
         m_stream->seek(stm_origin::begin, dos.e_lfanew + offset);
 
         for (WORD i = 0; i < count; i++) {
@@ -48,7 +74,7 @@ namespace hy::shim {
                 co_return;
             }
 
-            co_yield seg(m_state, image_base, header);
+            co_yield seg(m_state, base, header);
         }
     }
 }

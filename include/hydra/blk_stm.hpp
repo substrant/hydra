@@ -23,16 +23,22 @@ namespace hy {
             : blk(std::forward<decltype(args)>(args)...) { construct(); }
 
         [[nodiscard]] std::size_t read(std::int8_t* dst, const std::size_t n) override {
-            const auto remaining = size - std::min((base + size).i, position);
+            const auto end = (base + size).i;
+            const auto remaining = end - std::min(end, position);
             const auto count = std::min(n, remaining);
+
+            if (!count) return 0;
 
             std::memcpy(dst, ptr(position), count);
             return count;
         }
 
         [[nodiscard]] std::size_t write(const std::int8_t* src, const std::size_t n) override {
-            const auto remaining = size - std::min((base + size).i, position);
+            const auto end = (base + size).i;
+            const auto remaining = end - std::min(end, position);
             const auto count = std::min(n, remaining);
+
+            if (!count) return 0;
 
             std::memcpy(ptr(position), src, count);
             return count;

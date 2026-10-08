@@ -61,9 +61,15 @@ namespace hy::shim {
         IMAGE_NT_HEADERS nt;
 
     public:
-        using impl::mod::mod;
+        const std::string name{};
 
-        err parse() override;
+        explicit mod(const std::string& name, stm& stream, const mod_state state)
+            : impl::mod(stream, state), name(std::move(name)) { }
+
+        explicit mod(const std::string& name, stm&& stream, const mod_state state)
+            : impl::mod(stream, state), name(std::move(name)) { }
+
+        err parse(mod_state state = mod_state::inherit) override;
 
         std::size_t calc_size(mod_state state) override;
 

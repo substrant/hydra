@@ -35,19 +35,18 @@ namespace hy::impl {
     public:
         explicit mod(stm& stream, const mod_state state) : m_stream(&stream), m_owner(false), m_state(state) { }
 
-        template <typename T> requires std::derived_from<std::remove_cvref_t<T>, stm> && (!std::is_lvalue_reference_v<T>)
-        explicit mod(T&& stream, const mod_state state) :
-            m_stream(new std::remove_cvref_t<T>(std::forward<T>(stream))),
+        explicit mod(stm&& stream, const mod_state state) :
+            m_stream(stream.clone_move().release()),
             m_owner(true),
             m_state(state) { }
 
-        virtual err parse() = 0;
+        virtual err parse(mod_state state) = 0;
 
         virtual std::generator<hy::seg> segments(err* error) = 0;
 
         virtual std::size_t calc_size(mod_state state) = 0;
 
-        ~mod() override {
+        ~mod() {
             if (m_owner && m_stream)
                 delete m_stream;
         }

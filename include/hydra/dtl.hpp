@@ -68,4 +68,9 @@ namespace hy::dtl {
     /// pointer types
     template <class R, class ...A>
     struct func_traits<R(*)(A...)> : func_traits<auto(A...) -> R> { };
+
+    template <class T>
+    struct clone_moveable {
+        virtual std::unique_ptr<T> clone_move() = 0;
+    };
 }

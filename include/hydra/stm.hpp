@@ -21,7 +21,7 @@ namespace hy {
 
     /// Base abstract stream class for read/write operations.
     /// Provides fundamental streaming operations similar to .NET Stream.
-    class stm {
+    class stm : public dtl::clone_moveable<stm> {
     public:
         std::size_t position = 0;
         stm_mode mode = stm_mode::relative;

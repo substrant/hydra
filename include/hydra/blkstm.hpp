@@ -7,7 +7,7 @@
 #include <hydra/stm.hpp>
 
 namespace hy {
-    class blk_stm : public blk, public stm {
+    class blkstm : public blk, public stm {
         inline void construct() {
             position = base;
         }
@@ -16,11 +16,13 @@ namespace hy {
         using stm::read;
         using stm::write;
 
-        explicit blk_stm(const blk& block)  : blk(block)            { construct(); }
-        explicit blk_stm(blk&& block)       : blk(std::move(block)) { construct(); }
+        explicit blkstm(const blk& block)  : blk(block)            { construct(); }
+        explicit blkstm(blk&& block)       : blk(std::move(block)) { construct(); }
 
-        explicit blk_stm(auto&&... args) requires std::constructible_from<blk, decltype(args)...>
+        explicit blkstm(auto&&... args) requires std::constructible_from<blk, decltype(args)...>
             : blk(std::forward<decltype(args)>(args)...) { construct(); }
+
+        std::unique_ptr<stm> clone_move() override;
 
         [[nodiscard]] std::size_t read(std::int8_t* dst, const std::size_t n) override {
             const auto end = (base + size).i;

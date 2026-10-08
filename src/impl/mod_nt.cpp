@@ -5,7 +5,7 @@
 #include <hydra/impl/mod_nt.hpp>
 
 namespace hy::shim {
-    err mod::parse() {
+    err mod::parse(mod_state state) {
         base = m_stream->seek(stm_origin::begin);
 
         if (m_stream->read(&dos) != sizeof(dos))
@@ -25,6 +25,7 @@ namespace hy::shim {
         if (nt.Signature != IMAGE_NT_SIGNATURE)
             return (err)-200;
 
+        size = calc_size(state);
         return STA_SUCCESS;
     }
 

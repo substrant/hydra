@@ -20,6 +20,9 @@ namespace hy {
 
         operator HANDLE() const { return nt; }    // NOLINT
         operator DWORD()  const { return win32; } // NOLINT
+
+        operator HANDLE*() { return &nt; }    // NOLINT
+        operator DWORD*()  { return &win32; } // NOLINT
     };
 }
 
@@ -37,14 +40,12 @@ namespace hy::shim {
 
         static err open_hnd(HANDLE handle, hy::proc* proc);
 
+        std::generator<hy::mod&> mod_enum() override;
+
         std::size_t mm_read(ptr local_dst, ptr remote_src, std::size_t size) override;
-
         std::size_t mm_write(ptr remote_dst, ptr local_src, std::size_t size) override;
-
         bool mm_protect(ptr remote_base, std::size_t size, mem_mode mode) override;
-
         blk mm_alloc(ptr remote_base, std::size_t size, mem_mode mode) override;
-
         bool mm_free(ptr remote_base) override;
     };
 }

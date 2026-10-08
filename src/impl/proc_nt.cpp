@@ -5,6 +5,9 @@
 #include <hydra/impl/proc_nt.hpp>
 #include <hydra/nt/err.hpp>
 
+#include "hydra/procstm.hpp"
+#include "hydra/nt/str.hpp"
+
 namespace {
     constexpr DWORD protection_map[] = {
         PAGE_NOACCESS,             // ---
@@ -74,6 +77,62 @@ namespace hy::shim {
         const auto proc_ = reinterpret_cast<shim::proc*>(proc);
         proc_->hnd.reset(handle, true);
         return proc_->claim();
+    }
+
+    std::generator<hy::mod&> proc::mod_enum() {
+        PROCESS_BASIC_INFORMATION info;
+        ptr ldr_addr;
+
+        union {
+            LIST_ENTRY l;
+            LDR_DATA_TABLE_ENTRY t;
+        } ldr_entry;
+        
+        if (!NT_SUCCESS(nt::err = NtQueryInformationProcess(
+            hnd,
+            ProcessBasicInformation,
+            &info,
+            sizeof(info),
+            nullptr
+        ))) co_return;
+
+        if (!impl::proc::mm_read(
+            &ldr_addr,
+            static_cast<ptr>(info.PebBaseAddress) + offsetof(PEB, Ldr)
+        )) {
+            nt::err = STA_PARTIAL_READ;
+            co_return;
+        }
+
+        if (!impl::proc::mm_read(
+            &ldr_addr,
+            ldr_addr + offsetof(PEB_LDR_DATA, InLoadOrderModuleList))
+        ) {
+            nt::err = STA_PARTIAL_READ;
+            co_return;
+        }
+
+        ptr head = ldr_addr;
+        for (;;) {
+            if (!impl::proc::mm_read(&ldr_entry, ldr_addr)) {
+                nt::err = STA_PARTIAL_READ;
+                co_return;
+            }
+
+            if ((ldr_addr = ldr_entry.l.Flink) == head)
+                break;
+
+            std::wstring name_ws(ldr_entry.t.BaseDllName.Length / sizeof(wchar_t), L'0');
+            mm_read(name_ws.data(), ldr_entry.t.BaseDllName.Buffer, ldr_entry.t.BaseDllName.Length);
+
+            procstm stm(dynamic_cast<hy::proc&>(*this), blk{ ldr_entry.t.DllBase, ldr_entry.t.SizeOfImage });
+            hy::mod mod(nt::unicode_to_string(name_ws), std::move(stm), mod_state::mapped);
+
+            mod.parse();
+            co_yield mod;
+        }
+
+        co_return;
     }
 
     std::size_t proc::mm_read(const ptr local_dst, const ptr remote_src, const std::size_t size) {

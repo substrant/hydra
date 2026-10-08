@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include <hydra/proc.hpp>
-#include <hydra/blk_stm.hpp>
+#include <hydra/blkstm.hpp>
 #include <hydra/ptr.hpp>
 #include <hydra/nt/err.hpp>
 
@@ -9,7 +9,7 @@
 
 #include <Psapi.h>
 
-#include "hydra/proc_stm.hpp"
+#include "hydra/procstm.hpp"
 #include "hydra/disasm.hpp"
 
 //#include "hydra/mod.hpp"
@@ -23,7 +23,7 @@ int main() {
 	hy::proc target;
 
 	hy::pid_t pid;
-	GetWindowThreadProcessId(FindWindowA(nullptr, "Untitled - Notepad"), &pid.win32);
+	GetWindowThreadProcessId(FindWindowA(nullptr, "Untitled - Notepad"), pid);
 	
 	auto handle = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
 
@@ -34,13 +34,21 @@ int main() {
 
 	std::cout << "works: " << std::hex << hy::nt::err << "\n";
 
+	for (auto& mod : target.mod_enum()) {
+		std::cout << mod.name << ": " << mod.base << " -> " << mod.size << "\n";
+	}
+
+	std::cout << "works: " << std::hex << hy::nt::err << "\n";
+
+	return 0;
+
 	MODULEINFO mod_info; // yes i know its in this proc but base for ntdll is static
 	const auto mod_address = GetModuleHandleA("ntdll.dll");
 	
     GetModuleInformation(target.hnd, mod_address, &mod_info, sizeof(mod_info));
 
 	hy::blk mod_block{ mod_address, mod_info.SizeOfImage };
-	hy::mod module(hy::proc_stm(target, mod_block), hy::mod_state::mapped);
+	hy::mod module("cock", hy::procstm(target, mod_block), hy::mod_state::mapped);
 
 	std::cout << "[+] Parse status: " << module.parse() << "\n";
 
@@ -53,7 +61,7 @@ int main() {
 	auto text = module.segment(".text").value();
 	std::cout << "[+] .text segment: " << text.base << "\n";
 	
-	hy::disasm analysis(hy::proc_stm(target, hy::blk(text.base, text.size)));
+	hy::disasm analysis(hy::procstm(target, hy::blk(text.base, text.size)));
 
 	hy::err last_err;
 	int tries = 0;
@@ -72,7 +80,7 @@ int main() {
 			continue;
 
 		std::cout << "[+] Function:\n-------------------\n" << analysis.format_func(&fn) << "-------------------\n";
-		Sleep(1000);
+		//Sleep(1000);
 	} while (true);
 
 	std::cout << "[?] Last error: " << std::dec << last_err << "\n";

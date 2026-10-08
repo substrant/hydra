@@ -3,6 +3,8 @@
 #include <hydra/ost.hpp>
 #include <hydra/err.hpp>
 
+#include <string>
+
 #ifdef HY_OS_NT
 #   include <hydra/impl/proc_nt.hpp>
 #else
@@ -22,6 +24,9 @@ namespace hy {
         static err open_hnd(const HANDLE handle, proc* proc) {
             return proc->m_impl.open_hnd(handle);
         }
+
+        static std::generator<pid_t> find_by_mod(std::string name);
+        static std::generator<pid_t> find_by_window(std::string name);
 
         [[nodiscard]] HANDLE native_handle() const { return m_impl.native_handle(); }
 #endif

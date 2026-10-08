@@ -48,6 +48,7 @@ target_include_directories(Substrant.Hydra
 target_link_libraries(Substrant.Hydra
     PUBLIC Zydis Zycore
     PUBLIC phnt
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/dependencies/win32u/x64/win32u.lib"
 )
 
 if(HYDRA_BUILD_TESTS)

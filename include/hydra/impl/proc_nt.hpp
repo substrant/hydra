@@ -4,6 +4,8 @@
 
 #include <hydra/nt/hnd.hpp>
 #include <hydra/nt/err.hpp>
+
+#include <string>
 #include <type_traits>
 
 namespace hy {
@@ -16,7 +18,12 @@ namespace hy {
         explicit pid_t() { nt = nullptr; }
 
         template <typename T> requires std::is_same_v<HANDLE, T> || std::is_same_v<DWORD, T>
-        explicit pid_t(const T id) { nt = (HANDLE)id; }
+        explicit pid_t(const T id) {
+            if constexpr (std::is_same_v<HANDLE, T>)
+                nt = id;
+            else
+                nt = reinterpret_cast<HANDLE>(static_cast<ULONG_PTR>(id));
+        }
 
         operator HANDLE() const { return nt; }    // NOLINT
         operator DWORD()  const { return win32; } // NOLINT

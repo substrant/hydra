@@ -60,6 +60,23 @@ auto found = disasm.find(
 );
 ```
 
+## Native Windows Process Discovery
+
+Windows builds expose lazy PID searches by executable-module name and exact window title:
+
+```cpp
+for (const auto pid : hy::proc::find_by_mod("notepad.exe")) {
+    // Open or inspect every matching Notepad process.
+}
+
+for (const auto pid : hy::proc::find_by_window("Untitled - Notepad")) {
+    // Process IDs are yielded for matching top-level windows.
+}
+```
+
+Both paths stay native: process names come from `NtQuerySystemInformation`, while window-title matching and owner PID
+lookup call the PHNT declarations for `NtUserFindWindowEx` and `NtUserQueryWindow` directly.
+
 ## Planned Features
 
 Overall implementation:

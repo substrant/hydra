@@ -5,10 +5,29 @@
 #include <hydra/nt/err.hpp>
 #include <hydra/proc.hpp>
 
+#pragma comment(lib, "win32u.lib")
+
 int main() {
     hy::proc target;
-    if (hy::proc::open_hnd(GetCurrentProcess(), &target) != hy::STA_SUCCESS) {
+    if (hy::proc::open_hnd(NtCurrentProcess(), &target) != hy::STA_SUCCESS) {
         std::cerr << "failed to open current process: " << std::hex << hy::nt::err << '\n';
+        return 1;
+    }
+
+    const auto current_pid = static_cast<DWORD>(
+        reinterpret_cast<std::uintptr_t>(NtCurrentTeb()->ClientId.UniqueProcess)
+    );
+
+    bool found_current_process = false;
+    for (const auto pid : hy::proc::find_by_mod("Substrant.HydraTests.exe")) {
+        if (pid.win32 == current_pid) {
+            found_current_process = true;
+            break;
+        }
+    }
+
+    if (!found_current_process) {
+        std::cerr << "failed to find current process by module name\n";
         return 1;
     }
 
@@ -34,6 +53,7 @@ int main() {
         return 1;
     }
 
-    std::cout << "read current process memory and parsed " << module_count << " modules\n";
+    std::cout << "found the current PID, read memory, and parsed "
+              << module_count << " modules\n";
     return 0;
 }

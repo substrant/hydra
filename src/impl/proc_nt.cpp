@@ -3,6 +3,7 @@
 #ifdef HY_OS_NT
 
 #include <hydra/impl/proc_nt.hpp>
+#include <hydra/mod.hpp>
 #include <hydra/nt/err.hpp>
 
 #include "hydra/procstm.hpp"
@@ -34,32 +35,32 @@ namespace {
 namespace hy::shim {
     err proc::claim() {
         // Missing process ID
-        if (hnd && !pid.nt) {
+        if (m_hnd && !m_pid.nt) {
             PROCESS_BASIC_INFORMATION pbi;
             ULONG ret_len;
 
             if (!NT_SUCCESS(nt::err = NtQueryInformationProcess(
-                hnd,
+                m_hnd,
                 ProcessBasicInformation,
                 &pbi,
                 sizeof(pbi),
                 &ret_len
             ))) return ERR_NATIVE_ERROR;
 
-            pid.nt = pbi.UniqueProcessId;
+            m_pid.nt = pbi.UniqueProcessId;
         }
 
         // Missing process handle
-        else if (pid.nt && !hnd) {
+        else if (m_pid.nt && !m_hnd) {
             CLIENT_ID cid;
-            cid.UniqueProcess = pid.nt;
+            cid.UniqueProcess = m_pid.nt;
             cid.UniqueThread = nullptr;
 
             OBJECT_ATTRIBUTES attr;
             InitializeObjectAttributes(&attr, nullptr, 0, nullptr, nullptr);
 
             if (!NT_SUCCESS(nt::err = NtOpenProcess(
-                &hnd.value,
+                &m_hnd.value,
                 PROCESS_ALL_ACCESS,
                 &attr,
                 &cid
@@ -73,13 +74,17 @@ namespace hy::shim {
         return STA_SUCCESS;
     }
 
-    err proc::open_hnd(const HANDLE handle, hy::proc* proc) {
-        const auto proc_ = reinterpret_cast<shim::proc*>(proc);
-        proc_->hnd.reset(handle, true);
-        return proc_->claim();
+    err proc::open_pid(const pid_t pid) {
+        m_pid = pid;
+        return claim();
     }
 
-    std::generator<hy::mod&> proc::mod_enum() {
+    err proc::open_hnd(const HANDLE handle) {
+        m_hnd.reset(handle, true);
+        return claim();
+    }
+
+    std::generator<hy::mod&> proc::mod_enum(hy::proc& owner) {
         PROCESS_BASIC_INFORMATION info;
         ptr ldr_addr;
 
@@ -89,32 +94,34 @@ namespace hy::shim {
         } ldr_entry;
         
         if (!NT_SUCCESS(nt::err = NtQueryInformationProcess(
-            hnd,
+            m_hnd,
             ProcessBasicInformation,
             &info,
             sizeof(info),
             nullptr
         ))) co_return;
 
-        if (!impl::proc::mm_read(
-            &ldr_addr,
-            static_cast<ptr>(info.PebBaseAddress) + offsetof(PEB, Ldr)
-        )) {
+        if (mm_read(
+            ptr(&ldr_addr),
+            static_cast<ptr>(info.PebBaseAddress) + offsetof(PEB, Ldr),
+            sizeof(ldr_addr)
+        ) != sizeof(ldr_addr)) {
             nt::err = STA_PARTIAL_READ;
             co_return;
         }
 
-        if (!impl::proc::mm_read(
-            &ldr_addr,
-            ldr_addr + offsetof(PEB_LDR_DATA, InLoadOrderModuleList))
-        ) {
+        if (mm_read(
+            ptr(&ldr_addr),
+            ldr_addr + offsetof(PEB_LDR_DATA, InLoadOrderModuleList),
+            sizeof(ldr_addr)
+        ) != sizeof(ldr_addr)) {
             nt::err = STA_PARTIAL_READ;
             co_return;
         }
 
         ptr head = ldr_addr;
         for (;;) {
-            if (!impl::proc::mm_read(&ldr_entry, ldr_addr)) {
+            if (mm_read(ptr(&ldr_entry), ldr_addr, sizeof(ldr_entry)) != sizeof(ldr_entry)) {
                 nt::err = STA_PARTIAL_READ;
                 co_return;
             }
@@ -125,7 +132,7 @@ namespace hy::shim {
             std::wstring name_ws(ldr_entry.t.BaseDllName.Length / sizeof(wchar_t), L'0');
             mm_read(name_ws.data(), ldr_entry.t.BaseDllName.Buffer, ldr_entry.t.BaseDllName.Length);
 
-            procstm stm(dynamic_cast<hy::proc&>(*this), blk{ ldr_entry.t.DllBase, ldr_entry.t.SizeOfImage });
+            procstm stm(owner, blk{ ldr_entry.t.DllBase, ldr_entry.t.SizeOfImage });
             hy::mod mod(nt::unicode_to_string(name_ws), std::move(stm), mod_state::mapped);
 
             mod.parse();
@@ -139,7 +146,7 @@ namespace hy::shim {
         SIZE_T bytes_read = 0;
             
         nt::err = NtReadVirtualMemory(
-            hnd,
+            m_hnd,
             remote_src,
             local_dst,
             size,
@@ -153,7 +160,7 @@ namespace hy::shim {
         SIZE_T bytes_read = 0;
 
         nt::err = NtWriteVirtualMemory(
-            hnd,
+            m_hnd,
             remote_dst,
             local_src,
             size,
@@ -166,7 +173,7 @@ namespace hy::shim {
     bool proc::mm_protect(const ptr remote_base, std::size_t size, const mem_mode mode) {
         auto protection = get_protection(mode);
         return NT_SUCCESS(nt::err = NtProtectVirtualMemory(
-            hnd,
+            m_hnd,
             remote_base,
             &size,
             protection,
@@ -178,7 +185,7 @@ namespace hy::shim {
         const auto protection = get_protection(mode);
         
         if (!NT_SUCCESS(nt::err = NtAllocateVirtualMemory(
-            hnd,
+            m_hnd,
             remote_base,
             0,
             &size,
@@ -192,7 +199,7 @@ namespace hy::shim {
     bool proc::mm_free(const ptr remote_base) {
         std::size_t size = 0;
         return NT_SUCCESS(nt::err = NtFreeVirtualMemory(
-            hnd,
+            m_hnd,
             remote_base,
             &size,
             MEM_RELEASE

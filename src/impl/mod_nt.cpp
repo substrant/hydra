@@ -2,80 +2,81 @@
 
 #ifdef HY_OS_NT
 
-#include <hydra/impl/mod_nt.hpp>
+#include <hydra/mod.hpp>
 
 namespace hy::shim {
-    err mod::parse(mod_state state) {
-        base = m_stream->seek(stm_origin::begin);
+    err mod::parse(hy::mod& owner, mod_state state) {
+        owner.base = owner.m_stream->seek(stm_origin::begin);
 
-        if (m_stream->read(&dos) != sizeof(dos))
+        if (owner.m_stream->read(&m_dos) != sizeof(m_dos))
             return STA_PARTIAL_READ;
 
-        if (dos.e_magic != IMAGE_DOS_SIGNATURE)
+        if (m_dos.e_magic != IMAGE_DOS_SIGNATURE)
             return (err)-100;
 
-        if (!dos.e_lfanew)
+        if (!m_dos.e_lfanew)
             return (err)-101;
 
-        m_stream->seek(stm_origin::begin, dos.e_lfanew);
+        owner.m_stream->seek(stm_origin::begin, m_dos.e_lfanew);
 
-        if (m_stream->read(&nt) != sizeof(nt))
+        if (owner.m_stream->read(&m_nt) != sizeof(m_nt))
             return STA_PARTIAL_READ;
 
-        if (nt.Signature != IMAGE_NT_SIGNATURE)
+        if (m_nt.Signature != IMAGE_NT_SIGNATURE)
             return (err)-200;
 
-        size = calc_size(state);
+        owner.size = calc_size(owner, state);
         return STA_SUCCESS;
     }
 
-    std::size_t mod::calc_size(mod_state state) {
+    std::size_t mod::calc_size(hy::mod& owner, mod_state state) {
         if (state == mod_state::inherit)
-            state = m_state;
+            state = owner.m_state;
 
         err error = STA_SUCCESS; // todo
 
         if (state == mod_state::header) {
-            const auto first_it = segments(&error).begin();
-            if (error != STA_SUCCESS) return sizeof(dos) + sizeof(nt);
+            auto generator = segments(owner, &error);
+            const auto first_it = generator.begin();
+            if (error != STA_SUCCESS) return sizeof(m_dos) + sizeof(m_nt);
 
-            return (*first_it).base - base;
+            return (*first_it).base - owner.base;
         }
         else {
             std::size_t max_end = 0;
 
-            for (const auto& segment : segments(&error)) {
+            for (const auto& segment : segments(owner, &error)) {
                 const auto end = segment.calc_base(state) + segment.calc_size(state);
                 max_end = std::max<size_t>(end, max_end);
             }
 
-            return max_end - base;
+            return max_end - owner.base;
         }
     }
 
-    std::generator<seg> mod::segments(err* error) {
-        const auto count = nt.FileHeader.NumberOfSections;
+    std::generator<seg> mod::segments(hy::mod& owner, err* error) {
+        const auto count = m_nt.FileHeader.NumberOfSections;
         if (count == 0) {
-            *error = STA_PARTIAL_READ;
+            if (error) *error = STA_PARTIAL_READ;
             co_return;
         }
 
-        const auto offset = FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + nt.FileHeader.SizeOfOptionalHeader;
+        const auto offset = FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader) + m_nt.FileHeader.SizeOfOptionalHeader;
         if (!offset) {
-            *error = STA_PARTIAL_READ;
+            if (error) *error = STA_PARTIAL_READ;
             co_return;
         }
 
         IMAGE_SECTION_HEADER header;
-        m_stream->seek(stm_origin::begin, dos.e_lfanew + offset);
+        owner.m_stream->seek(stm_origin::begin, m_dos.e_lfanew + offset);
 
         for (WORD i = 0; i < count; i++) {
-            if (!m_stream->read(&header)) {
-                *error = STA_PARTIAL_READ;
+            if (!owner.m_stream->read(&header)) {
+                if (error) *error = STA_PARTIAL_READ;
                 co_return;
             }
 
-            co_yield seg(m_state, base, header);
+            co_yield seg(owner.m_state, owner.base, header);
         }
     }
 }

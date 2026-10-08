@@ -2,12 +2,21 @@
 
 #include <hydra/impl/mod.hpp>
 
+#include <hydra/blk.hpp>
+#include <hydra/mem.hpp>
 #include <hydra/ptr.hpp>
 #include <hydra/ost.hpp>
 #include <hydra/err.hpp>
 
+#include <cstring>
+#include <optional>
+#include <string>
+
 namespace hy {
-    struct seg : impl::seg {
+    struct seg : blk {
+        std::optional<std::string> name;
+        mem_mode mode;
+
     protected:
         ptr image_base;
 
@@ -55,24 +64,15 @@ namespace hy {
 }
 
 namespace hy::shim {
-    class mod : public impl::mod {
-    protected:
-        IMAGE_DOS_HEADER dos;
-        IMAGE_NT_HEADERS nt;
+    class mod {
+        IMAGE_DOS_HEADER m_dos{};
+        IMAGE_NT_HEADERS m_nt{};
 
     public:
-        const std::string name{};
+        err parse(hy::mod& owner, mod_state state);
 
-        explicit mod(const std::string& name, stm& stream, const mod_state state)
-            : impl::mod(stream, state), name(std::move(name)) { }
+        std::size_t calc_size(hy::mod& owner, mod_state state);
 
-        explicit mod(const std::string& name, stm&& stream, const mod_state state)
-            : impl::mod(stream, state), name(std::move(name)) { }
-
-        err parse(mod_state state = mod_state::inherit) override;
-
-        std::size_t calc_size(mod_state state) override;
-
-        std::generator<seg> segments(err* error) override;
+        std::generator<seg> segments(hy::mod& owner, err* error);
     };
 }

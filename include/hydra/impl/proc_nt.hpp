@@ -27,25 +27,26 @@ namespace hy {
 }
 
 namespace hy::shim {
-    class proc : public impl::proc {
-    protected:
-        pid_t pid;
-    public: // todo: remove
-        nt::hnd hnd;
+    class proc {
+        pid_t m_pid;
+        nt::hnd m_hnd;
 
-        err claim() override;
+        err claim();
         
     public:
-        proc() : pid(0ul) { }
+        proc() = default;
 
-        static err open_hnd(HANDLE handle, hy::proc* proc);
+        err open_pid(pid_t pid);
+        err open_hnd(HANDLE handle);
 
-        std::generator<hy::mod&> mod_enum() override;
+        [[nodiscard]] HANDLE native_handle() const { return m_hnd; }
 
-        std::size_t mm_read(ptr local_dst, ptr remote_src, std::size_t size) override;
-        std::size_t mm_write(ptr remote_dst, ptr local_src, std::size_t size) override;
-        bool mm_protect(ptr remote_base, std::size_t size, mem_mode mode) override;
-        blk mm_alloc(ptr remote_base, std::size_t size, mem_mode mode) override;
-        bool mm_free(ptr remote_base) override;
+        std::generator<hy::mod&> mod_enum(hy::proc& owner);
+
+        std::size_t mm_read(ptr local_dst, ptr remote_src, std::size_t size);
+        std::size_t mm_write(ptr remote_dst, ptr local_src, std::size_t size);
+        bool mm_protect(ptr remote_base, std::size_t size, mem_mode mode);
+        blk mm_alloc(ptr remote_base, std::size_t size, mem_mode mode);
+        bool mm_free(ptr remote_base);
     };
 }

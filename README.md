@@ -96,6 +96,11 @@ Additional features:
 Hydra isn't intended to replace the Windows API, but rather simplify and abstract some clunky mechanisms of the Windows
 API to reduce boilerplate, deduplicate common code patterns, and improve the overall developer experience.
 
+**Compile-time platform contracts.** `impl::ProcImpl` and `impl::ModImpl` define the operations every platform must
+provide. The selected `shim` types implement those contracts, and the public `proc` and `mod` types compose the selected
+implementation while owning common behavior. `static_assert` checks each selected implementation during compilation;
+calls use direct dispatch without platform-interface objects or virtual calls.
+
 **Expected, not exceptions.** `process::open` returns `std::expected<process, NTSTATUS>`. Generators silently
 `co_return` on failure. No try/catch clutter.
 

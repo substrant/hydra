@@ -1,32 +1,34 @@
 #pragma once
 
-#include <hydra/ptr.hpp>
 #include <hydra/blk.hpp>
 #include <hydra/err.hpp>
 #include <hydra/mem.hpp>
-#include <hydra/mod.hpp>
+
+#include <concepts>
+#include <generator>
 
 namespace hy {
+    struct pid_t;
+    class mod;
     class proc;
 }
 
 namespace hy::impl {
-    class proc {
-    protected:
-        virtual err claim() = 0;
-
-    public:
-        virtual std::generator<hy::mod&> mod_enum() = 0;
-
-        virtual std::size_t mm_read(ptr local_dst, ptr remote_src, std::size_t size) = 0;
-        virtual std::size_t mm_write(ptr remote_dst, ptr local_src, std::size_t size) = 0;
-        virtual bool mm_protect(ptr remote_base, std::size_t size, mem_mode mode) = 0; // zero = mode region/page at base
-        virtual blk mm_alloc(ptr remote_base, std::size_t size, mem_mode mode) = 0;
-        virtual bool mm_free(ptr remote_base) = 0;
-
-        template <typename T>
-        auto mm_read(T* local_dst, ptr remote_src) { return mm_read(local_dst, remote_src, sizeof(T)); }
-
-        virtual ~proc() = 0;
+    template <class T>
+    concept ProcImpl = std::default_initializable<T> && requires(
+        T& impl,
+        hy::proc& owner,
+        const pid_t pid,
+        const ptr address,
+        const std::size_t size,
+        const mem_mode mode
+    ) {
+        { impl.open_pid(pid) } -> std::same_as<err>;
+        { impl.mod_enum(owner) } -> std::same_as<std::generator<hy::mod&>>;
+        { impl.mm_read(address, address, size) } -> std::same_as<std::size_t>;
+        { impl.mm_write(address, address, size) } -> std::same_as<std::size_t>;
+        { impl.mm_protect(address, size, mode) } -> std::same_as<bool>;
+        { impl.mm_alloc(address, size, mode) } -> std::same_as<blk>;
+        { impl.mm_free(address) } -> std::same_as<bool>;
     };
 }

@@ -73,4 +73,15 @@ namespace hy::dtl {
     struct clone_moveable {
         virtual std::unique_ptr<T> clone_move() = 0;
     };
+
+    template <typename T, std::size_t N>
+    struct template_param_impl;
+
+    template <template <typename...> class C, typename... Args, std::size_t N>
+    struct template_param_impl<C<Args...>, N> {
+        using type = std::tuple_element_t<N, std::tuple<Args...>>;
+    };
+
+    template <typename T, std::size_t N>
+    using template_param = typename template_param_impl<T, N>::type;
 }
